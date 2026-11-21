@@ -1,0 +1,12 @@
+name: Publish verified APK
+on:
+  push:
+    branches: [codex/publish-v1.1]
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Waiting for verified APK upload'
