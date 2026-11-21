@@ -1,5 +1,13 @@
 # 🎵 Spotifly - Spotify-Inspired Android Music Player
 
+## Download for Android
+
+[Download Spotifly 1.1 APK](https://github.com/ALternate-cloud/Spotifly/releases/download/v1.1/Spotifly-1.1.apk)
+
+Requires Android 7.0 or newer. Download the APK, tap it to open, and choose **Install**. If Android asks, allow installation from the browser or file manager you used.
+
+This is a debug-signed preview build. [View release details](https://github.com/ALternate-cloud/Spotifly/releases/tag/v1.1).
+
 Spotifly 1.1 is a native Android music player crafted with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material3**. It brings a sleek Spotify dark aesthetic to your personal music library with support for **both online streaming and offline local device playback**.
 
 ---
