@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HTTPS-only by default. Cleartext is permitted only for the media/CDN hosts the
+  app actually talks to, in case any of their endpoints return http:// URLs.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">saavncdn.com</domain>
+        <domain includeSubdomains="true">jiosaavn.com</domain>
+        <domain includeSubdomains="true">itunes.apple.com</domain>
+        <domain includeSubdomains="true">mzstatic.com</domain>
+        <domain includeSubdomains="true">lrclib.net</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto-backup rules: keep user preferences and small metadata, exclude the
+  offline music store (large audio blobs don't belong in cloud backups and
+  would blow the backup quota).
+-->
+<full-backup-content>
+    <exclude domain="file" path="offline_music/" />
+</full-backup-content>

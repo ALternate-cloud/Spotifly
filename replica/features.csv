@@ -1,0 +1,154 @@
+feature,area,priority,original,clone,notes
+Play / pause,Playback,must,yes,yes,Core transport in MusicController
+Next / previous track,Playback,must,yes,yes,"Prev restarts current track after 3s, matching original behaviour"
+Seek / scrub,Playback,must,yes,yes,Slider in FullPlayerModal
+Background playback,Playback,must,yes,yes,MediaSessionService with foreground type
+Lock screen + notification controls,Playback,must,yes,yes,Media3 default notification
+Audio focus + headphone unplug,Playback,must,yes,yes,setHandleAudioBecomingNoisy + audio attributes
+Shuffle,Playback,must,yes,yes,Persisted preference
+Repeat off / all / one,Playback,must,yes,yes,Persisted preference
+Queue view,Playback,must,yes,yes,QueueBottomSheet
+Queue reorder,Playback,should,yes,yes,Long-press drag not implemented; move action exists
+Queue remove,Playback,should,yes,yes,Removes and re-indexes correctly
+Add to queue,Playback,must,yes,yes,Appends to queue
+Play next,Playback,should,yes,yes,Inserts directly after the current track in both queue and player
+Autoplay similar tracks,Playback,should,yes,yes,"Audio-similarity engine: measured PCM feature vectors (streaming + local, cached) with weighted mean-centred cosine similarity; language+genre affinity, tiered fallbacks, budgeted candidate measurement (25s/8 decodes), same-song-name (titleKey) blocking, last-10/artist guards, 30s gapless prefetch, queue-sheet hint"
+Crossfade,Playback,should,yes,yes,"Fade-through on a single player: tail ramps down, next track ramps up (0-12s)"
+Gapless playback,Playback,should,yes,yes,ExoPlayer joins compatible formats without a gap
+Volume normalisation,Playback,should,yes,yes,Android LoudnessEnhancer on the live audio session
+Equalizer,Playback,should,yes,yes,"5-band Android Equalizer with presets, applied to ExoPlayer's audio session"
+Bass boost / virtualiser,Playback,could,yes,yes,Android BassBoost with a 0-1000 strength slider
+Playback speed,Playback,could,yes,yes,"0.25x to 3.0x, persisted"
+Sleep timer,Playback,should,yes,yes,"Duration based, with badge in player"
+Sleep timer end-of-track,Playback,could,yes,yes,End of track option in the sleep timer dialog; pauses on the automatic transition
+Audio quality selector,Playback,should,yes,partial,Tier persists and is shown in Settings; bundled catalogue sources still serve their fixed bitrate
+Skip silence,Playback,could,yes,yes,"Decoder-level skipSilenceEnabled, persisted and re-applied"
+Mono audio,Playback,could,yes,yes,Media3 downmix processor; applies from the next playback session
+Synchronised lyrics,Playback,must,yes,yes,"LRCLIB synced lyrics, highlighted current line"
+Lyrics tap-to-seek,Playback,should,yes,yes,Tap a line jumps playback
+Lyrics share,Playback,could,yes,yes,Share action in the full player shares the active lyric line as text
+Canvas / looping visuals,Playback,could,yes,no,No video loop support
+Now playing bar,Playback,must,yes,yes,MiniPlayer above bottom nav
+Media session / external control,Playback,should,yes,yes,Media3 MediaSession
+Bluetooth controls,Playback,must,yes,yes,Via MediaSession
+Home screen widget,Playback,should,yes,yes,RemoteViews now-playing widget with artwork and transport via MediaController
+Android Auto / CarPlay,Playback,should,yes,no,No car app service
+Wear OS companion,Playback,could,yes,no,No wear module
+Chromecast / Connect,Playback,should,yes,no,Connect is proprietary; Cast SDK not integrated
+Liked Songs,Library,must,yes,yes,Favourites persisted as full songs
+Like / unlike anywhere,Library,must,yes,yes,"Track row, player, overflow sheet"
+Create playlist,Library,must,yes,yes,PlaylistRepository
+Rename playlist,Library,must,yes,yes,Dialog in library
+Delete playlist,Library,must,yes,yes,With confirmation
+Add / remove track to playlist,Library,must,yes,yes,AddToPlaylistModal
+Reorder tracks in playlist,Library,must,yes,yes,Per-track move up / move down from the track menu
+Playlist description,Library,should,yes,yes,"Persisted on Playlist, editable from the header"
+Playlist custom cover,Library,should,yes,yes,Cover picker copies the image into app storage; removable
+Search within playlist,Library,should,yes,yes,"In-playlist search filters title, artist and album"
+Sort playlist tracks,Library,could,yes,yes,Title / artist / album / duration / custom sort modes
+Collaborative playlist,Library,should,yes,no,Needs backend and accounts
+Public / private playlist,Library,should,yes,no,No account model
+Playlist folders,Library,could,yes,no,No folder entity
+Liked albums,Library,should,yes,yes,Save album toggle persists full album metadata
+Saved albums list,Library,should,yes,yes,Saved albums get their own group in the Albums tab
+Followed artists,Library,should,yes,yes,Follow artist toggle persists and lists under Following
+Saved shows,Library,should,yes,yes,Followed shows persist to disk and list under Your shows
+Saved audiobooks,Library,could,yes,no,No audiobook support
+Your episodes,Library,should,yes,partial,Followed shows open their full feed; no cross-show new-episode feed
+Local files,Library,must,yes,yes,MediaStore scan for mp3/m4a/flac/wav
+Downloads,Library,must,yes,yes,OfflineMusicManager with progress
+Download progress / cancel,Library,should,yes,yes,Per-track progress and cancel
+Download album / playlist as unit,Library,should,yes,yes,Download action on album and playlist headers queues every track
+Offline mode toggle,Library,should,yes,yes,Offline switch hides network-only actions and blocks catalogue calls
+Storage usage,Library,should,yes,partial,Bytes shown in settings; no per-item manager
+Recently played,Library,must,yes,yes,"Last 50, persisted"
+Library type filters,Library,must,yes,yes,"Playlists, Liked, Albums, Artists, Downloaded, Device"
+Library sort,Library,should,yes,yes,"Recents / A-Z / Artist, cycled from the library header"
+Library search,Library,should,yes,yes,"Filters the active library tab by title, artist and album"
+Pin items in library,Library,could,yes,yes,Pinned playlists get their own section and pin toggle
+Grid / list view switch,Library,could,yes,yes,Grid / list switch persisted per device
+Import playlist,Library,could,yes,no,No import from URL or file
+Home personalised shelves,Discovery,must,yes,yes,"Jump back in, Made for you mixes, top artists, albums and playlists all derive from local history"
+Made for you / Daily Mixes,Discovery,should,yes,yes,Heuristic per-artist mixes built from the local play history
+Discover Weekly,Discovery,should,yes,no,Requires Spotify-scale recommendation model
+Release Radar,Discovery,should,yes,no,Requires new-release feed per followed artist
+Song radio,Discovery,should,yes,yes,"Go to song radio from the track menu: seed track plus that artist's catalogue, capped at 40"
+Artist radio,Discovery,should,yes,yes,Radio button on the artist screen queues the artist's catalogue
+Genre / mood browse,Discovery,must,yes,yes,Browse-all tiles run a catalogue search for that genre
+Charts,Discovery,could,yes,no,No chart source
+New releases,Discovery,could,yes,no,No release feed
+Concerts / live events,Discovery,could,yes,no,No events source
+Smart shuffle,Discovery,could,yes,no,Heuristic recommendation into shuffle
+Enhance playlist,Discovery,could,yes,no,No recommendation injection
+Artist recommendations,Discovery,should,yes,no,No related-artist graph
+Fans also like,Discovery,should,yes,no,No related-artist graph
+Browse all,Discovery,must,yes,yes,Colour grid wired to real searches
+Search songs,Search,must,yes,yes,JioSaavn then iTunes fallback
+Search artists,Search,must,yes,yes,Typed artist results with dedicated artist screen
+Search albums,Search,must,yes,yes,Typed album results with dedicated album screen
+Search playlists,Search,must,yes,yes,Local playlists are matched and playable from results
+Top result,Search,must,yes,yes,Ranked card above the typed sections
+Autocomplete / suggestions,Search,should,yes,yes,Locally built suggestion chips from recent searches and library artists/titles
+Search history,Search,should,yes,yes,"Persisted, with clear all"
+Voice search,Search,could,yes,yes,"Recogniser intent, graceful failure"
+Search by lyrics,Search,could,yes,no,No lyric index
+Filter results by type,Search,should,yes,yes,All / Songs / Albums / Artists / Playlists / Device
+Search within playlist / library,Search,should,yes,yes,Both the library and playlist detail have internal search
+Public profile,Social,should,yes,no,No account model
+Follow users,Social,should,yes,no,No account model
+Friend activity,Social,could,yes,no,No social graph
+Share link,Social,must,yes,yes,Android share sheet with track or playlist text
+Share card / story image,Social,could,yes,partial,Wrapped card shares its numbers as text; no bitmap composition
+QR code,Social,could,yes,no,Not implemented
+Jam / group session,Social,could,yes,no,Needs realtime backend
+Blend,Social,could,yes,no,Needs accounts and shared taste model
+Collaborative playlist,Social,should,yes,no,Needs backend
+Sign up / login,Account,must,yes,skip,Local-only player by design; no Spotify account
+Profile edit,Account,should,yes,no,No profile
+Premium purchase,Account,must,yes,skip,Commercial billing not applicable
+Plan management,Account,must,yes,skip,Commercial billing not applicable
+Payment methods,Account,must,yes,skip,Commercial billing not applicable
+Country change,Account,could,yes,no,No account region
+Delete account,Account,should,yes,skip,No account to delete
+Data download,Account,could,yes,no,No export of listening data
+Family / Duo / Student plans,Account,should,yes,skip,Commercial billing not applicable
+Gift / prepaid cards,Account,could,yes,skip,Commercial billing not applicable
+Podcast search,Podcasts,must,yes,yes,"iTunes public search index, no keys or Spotify catalogue"
+Follow show,Podcasts,must,yes,yes,"Follow / Following toggle on the show header, persisted"
+Episode list,Podcasts,must,yes,yes,Show's own RSS feed parsed into episodes with date and duration
+Episode playback + resume,Podcasts,must,yes,yes,"Plays through the music queue; position is saved and restored, finished episodes are marked played"
+Episode speed controls,Podcasts,must,yes,yes,Podcast speed is remembered separately from music speed and re-applied when an episode starts
+Skip 15 / 30 seconds,Podcasts,must,yes,yes,Back 15s / forward 30s pills appear for podcast episodes in the player
+Video podcasts,Podcasts,could,yes,no,No video surface
+Transcripts,Podcasts,could,yes,no,No transcript source
+Chapters,Podcasts,should,yes,no,RSS chapter tags are not parsed yet
+Audiobooks,Audiobooks,should,yes,no,No audiobook source
+Audiobook listening limits,Audiobooks,could,yes,no,Premium entitlement concept
+Theme dark / light,Settings,should,yes,yes,System / dark / light modes; the full player stays dark over artwork
+Accent themes,Settings,could,no,yes,Extra: six accent palettes
+Language,Settings,should,yes,no,"English only, no locale switch"
+Accessibility / dynamic type,Settings,should,yes,partial,Compose defaults; no explicit scaling control
+High contrast,Settings,could,yes,no,No contrast mode
+Explicit content filter,Settings,should,yes,partial,Library and playlist lists hide explicit tracks; online search results are not filtered
+Autoplay toggle,Settings,should,yes,yes,Settings + full player; turning off drops the staged continuation
+Notification settings,Settings,could,yes,no,No notification preferences
+Data saver,Settings,should,yes,partial,Toggle persists; sources still expose fixed bitrates so it does not downgrade a stream yet
+Offline mode,Settings,should,yes,yes,"Network calls, radio and artwork loading are skipped; downloaded and device tracks only"
+Privacy and social settings,Settings,should,yes,no,No social surface
+About / legal,Settings,could,yes,yes,"About & legal screen lists audio sources, local data and clean-room scope"
+Storage management,Settings,should,yes,partial,Usage shown in settings; no per-item manager
+Clear cache,Settings,should,yes,yes,"Coil disk and memory image cache cleared, with size shown"
+MediaSessionService,Platform,must,yes,yes,Foreground media playback service
+Media3 notification,Platform,must,yes,yes,Default Media3 notification provider
+Deep links / URI handling,Platform,could,yes,yes,"spotifly://track|album|artist|playlist|search handled in MainActivity, including onNewIntent"
+Background download,Platform,should,yes,yes,OkHttp download with progress
+Offline cache eviction,Platform,could,yes,no,No LRU eviction of downloads
+Crash reporting,Platform,could,yes,no,No reporter wired
+Analytics,Platform,could,yes,no,Deliberately none in a personal player
+Update mechanism,Platform,could,yes,no,No in-app update
+Free tier ads,Monetisation,must,yes,skip,Ads deliberately excluded
+Premium upsell,Monetisation,must,yes,skip,No paid tier
+Listening stats,Stats,could,yes,yes,Local play log aggregated into totals and top lists
+Wrapped / yearly recap,Stats,could,yes,partial,"Wrapped card on Stats with top artist/track and a text share; all-time, not a year window"
+Top artists / tracks,Stats,could,yes,yes,Computed from the play log
+Recently played list,Stats,must,yes,yes,Persisted list of 50
