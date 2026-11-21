@@ -6,7 +6,31 @@ permissions:
   contents: write
 jobs:
   publish:
-    if: ${{ false }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ALternate-cloud/Spotifly
     steps:
-      - run: echo 'Waiting for verified APK upload'
+      - name: Reconstruct and verify the original APK
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import base64, hashlib, json, os, subprocess
+          chunks = ["4dd155c771bf5adfe45499cdfe909a2e356475c3","f5d19ec7a70fd7026386cadd45cfdd6c55ae409d","6a99e98577d8921bfdbf96f3d163b9db26a2687b","fdec6dc191f3d465f55b5a265cc0a0ca8a4bb4a8","e64881810280efd97e612ea291de569a19179f2f","1fadd0d468b465eff23cd05485832d79fd444361","ccc9000f6483952b38026a4b461f4c838af3badb","1b97df98467e9347a6d8a0b781239fae60453bbc","364843f50c773816a117645a1ac94f51c01779a5","2f2ad187eb7513d4bbf0894a98697a0f105dfe5f","3cf9f6b06c571acbc69f5fe34f888b4149276c31","e172b6cb9736c892a1be9a4ee38b16611e1a37cc","2ff67e9f912316a5ad0d10ad5ae40955fc8cc0ad","db2ebaa7fe72d6805d4aa5299936b85ebfb4e119","9b905dcf00379255bc56f8cb28b6b2d0b4091c62","7dce8664e64125fb4d7d89ea0d0dda90511b063b","53bdc60532b3e0292bafd645a9e5ed8d00fd2593","cf03712d9cb6f189f03f59e58c0c61940fed9caa","08494c0490d8de65b1d05d4890a101a16825d89f","374752a55cfbbd0974fe264023eb22eb43361733","3ce825d4c6d75857ec586a290c52695ce19cdb73","918ecb83c5f5b31d00bf479c0bc70e2574da6b6b","42292b1ea6753ef2da9bfad8553bf2126634464e","b54bcd3db459d759dce634a266b8e67242c5590f","e93c244d15a930979c02ec6dda91b16089567f8e","bb8bfbadaae617a9232148d62c4b4575219afebe","838503c1b2826fd2e38972ee5aabc798d148721b","de0f04b1ad17310867b9c5fce656f30e05fe3966","b71abcc4deab7e6f6850b0be56eb08cd311c087c","a251df5278e4a7781298ed0bb2762c3bc27fec08","a9875ff8b6d26abaf0964ebd43b933877c152deb","08bf3eb26bd615a13378badd77bdf47850183503","9a6e520815f3cf1c2b58be934b7d4533c77845b9","0c0ed5335038f1004e6a2a155444c0c1973786b7","34ebd23bab9944538f1d6d203bcccc7661822de2","c478d4b4f36e7eea53c39633dc33a67c4f6e21d0","bddd9e3ee9c7a6cc3b9d5c1324445ef178addc0d","83da2f3c48ff00908627f3ae65e631e884e3ee9d","b79544936c5d5d5680cb9ea5c3610e4c606de4c6","72e81a810c246855ce86cee6271ba6bb43fdd053","02717a66c863d39efbf51252ad867837d7fc9763","c2cb001e540b3d66b0b8833eaa411fcc1614c7c5","bea1c766ef64097f27c1d8082e5871dc21bf4176","f465bb00b981a0d278b69d19dea5dba5fb19fa29","99c2de26d6d2c411af4fc7adec7df83cbcd7b9bf","8f73aa85131e7056790b1fda300200149e434969","0c7f5010ff0da5eafed6500bc32829d67ee74c6b","6d41757e1d0a5216fa8f2817901a4dda4690a02b"]
+          expected = "1196f1b78f7a1d4a78dea81b67c58e16d83fd196b7f17c53544ec7aece69e407"
+          repository = os.environ["GH_REPO"]
+          with open("Spotifly-1.1.apk", "wb") as apk:
+              for sha in chunks:
+                  blob = json.loads(subprocess.check_output(["gh", "api", f"repos/{repository}/git/blobs/{sha}"]))
+                  apk.write(base64.b64decode(blob["content"]))
+          with open("Spotifly-1.1.apk", "rb") as apk:
+              actual = hashlib.file_digest(apk, "sha256").hexdigest()
+          if actual != expected:
+              raise SystemExit(f"APK checksum mismatch: {actual}")
+          print(f"Verified APK SHA-256: {actual}")
+          PY
+      - name: Publish Spotifly 1.1
+        shell: bash
+        run: |
+          gh release create v1.1 Spotifly-1.1.apk --target f471153a847eaa7f59030e7ce78af19ff78a6979 --title "Spotifly 1.1" --notes "$(printf 'Spotifly 1.1 for Android 7.0 and newer.\n\nDownload Spotifly-1.1.apk below, open it on your Android phone, and allow installation from your browser when Android asks.\n\nIncludes Song Radio, saving the queue as a playlist, broader catalog search, and playback improvements. This is the verified debug-signed preview build.')" --latest
