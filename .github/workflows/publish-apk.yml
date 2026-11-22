@@ -1,0 +1,40 @@
+name: Publish verified Spotifly 1.2 APK
+on:
+  push:
+    branches: [codex/publish-v1.2]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ALternate-cloud/Spotifly
+    steps:
+      - name: Reconstruct and verify the tested APK
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import base64, hashlib, json, os, subprocess
+          from pathlib import Path
+          chunks = ["06a2ca028d8e457ea81230b6a5edb9598847a82c","66392005d3dd5e99433f12fb6f0960611d03313e","2b04c17e663f6a654ff6cfc921b0aff21b568d1f","e616175b723e4a9d4797e31631dca8dc68a4bdad","c1c195a46777d0a113344a7881c566e9e474e3d1","5c71b5ee2f541b8867f68f25eae3a6991ba07b8a","a0eb2333cd7f0bd2cc4597aa7b158e8cee473f78","8ceb8fc1172cf2591cec58f99812a0e9b3df2b6d","a076654e28be1d57bc17a5199b1621d0ab15a7fd","de370cebfda9ef2054832c33c27de9da8843371e","4823185227e4377dfd7e88e911e95918bb9c87fa","82bb690bed5789519d035b053cb64718c8beebaf","07c52ddc0b61f9679a4a36bc9e06b50bd86347c1","9dca3171e26a0bc44027427c51b35d887c0f0396","a5f33da16c701a027676c3967f3295cb78833103","a8043163fbec6f8d5856416b3e9c6cb9ca145c12","151e88494588a20687d1b8e66ec5d837c5a41090","3539d740df914d0601aa25d3edabf02374657763","0e40098ce112d77c7aa10f2c0dcbb384487d556c","9d30c1218e6303ff2a172c5ea2747a823aa5e079","e1b99424a251553ca27f30b0bb13d230288d32b6","b0c57aab47eb0f9eca28fd5cc21d8aed35302cfc","d8fa42d63abac6712872e94a7092d0611e0c1b29","da5f2ed6ed1afff278f7a7468cfe60755e924a12","eb790534416e4f7575915a85d3cfde180f23c935","d74350dbbb7e0dafb4d574c4983f7edb9736da7e","15546c09f655d68dcb7fb8bb8004ada852eb8c02","77c20cfc65c8c7fb1010eae02cf8430fd40b250d","be8927b4418a9ceaf8b1a1dd24028b41379cd430","e370dccd576cc5baac868782952b518cff5c80de","2a442affa863c24b760e8c364c10d8349ecd0f2e","7cf01fb69756044cbad9d31d305bee22f9a59e6d","7ed1a193e7f45b2771557300e07c9e295afc66b4","0ec5287177ba554e4d67bc10dbdd384f730b8ff7","ccb8d61238a3d5b440fefb07c6439e37aec9c8c0","8391edc370df88380e3cad9ea6097c2d76deb245","0798473c9b2a336f227d349ef93ef52f4b354eaa","3a565c577e3188ed3107402641ea7d356ee1e111","70d2bc30e45750b5b2365e4f120a75ec9d43e9e9","a8e38cae4c53a932e76db86b1cfd2c6a4ee8be4e","a69efa346a6b2e4aeb3a598aa9b8d22534c17988","a64f7f73518f3f88a0d366f7744956ef0f1bfcd8","74cb9045d28e589d61e991b7bf97fe2976efd915","33a9665e512ecacf02c854bcb4c503357eaa847e","282fa5e0982e15649e3e3e152c920fe89cc71ba9","0aabd04def82a2a98649123400319a66b71a2024","4c44facbfea09bf7c0e3206689976e815ee84e04","65516627f9991c0d902539f30eea8562c602d6a1","7e99971f34336c560d4bc6a62a0be38793fcdc79","1262f06ae261dcaa5ab076a3cadb0ff66d0a26b4","65b04ac0591d1b9a1681dd459c01d56a74607267","8b730da20c75564a9c63adebb30efba44890e0aa","3f3c764c0f0b1118dac49c823f5c0de5fd396203","8e00e10df47c5d6fb519d228eef62c9d21ba203e","b58c38710f733e5a20249f9ae90fffbbb3ad3462","f3fcae4e2e813c8f262c17941c5f0527befa2876","51a7dc20652b2c15dc1c62577a02c387845e0097","bfc017328efa9eff159dc03c0df5272589acc3c2"]
+          expected = "d967823729ddfd7cd60ea096ec7ba7ece32598b2f0bd7e1502e94d0040ffa820"
+          repository = os.environ["GH_REPO"]
+          target = Path("Spotifly-1.2.apk")
+          with target.open("wb") as apk:
+              for sha in chunks:
+                  blob = json.loads(subprocess.check_output(["gh", "api", f"repos/{repository}/git/blobs/{sha}"]))
+                  apk.write(base64.b64decode(blob["content"]))
+          with target.open("rb") as apk:
+              actual = hashlib.file_digest(apk, "sha256").hexdigest()
+          if actual != expected or target.stat().st_size != 30311212:
+              raise SystemExit(f"APK verification failed: {actual}, {target.stat().st_size} bytes")
+          Path("SHA256SUMS.txt").write_text(f"{actual}  {target.name}\n")
+          Path("release-notes.md").write_text("Spotifly 1.2 for Android 7.0 and newer.\n\nDownload **Spotifly-1.2.apk**, open it on your Android phone, and allow installation from your browser if Android asks. Existing 1.1 users can install this as an update without uninstalling.\n\n### New in 1.2\n- Optional **Sign in with Google** in Settings.\n- Automatic backup of playlists and liked songs to your account.\n- Restore and merge backed-up library data when signing into the same account.\n- Backup status, retry, offline pending changes, and account-separated local libraries.\n\nWait until Settings shows **Library backed up** before uninstalling. Device audio files and local cover images stay on their original device and are not uploaded.\n\n### Verification\n- Google sign-in and completed backup verified on an Android phone.\n- 144 unit tests passed; one skipped. All 27 cloud-library tests passed.\n- Four Firebase access-control tests passed.\n- Android lint: zero errors and zero warnings.\n- Reinstall-and-restore has not yet been tested on a device.\n\nThis is a debug-signed preview build, using the same signing certificate as 1.1.\n")
+          print(f"Verified APK SHA-256: {actual}")
+          PY
+      - name: Publish Spotifly 1.2
+        shell: bash
+        run: |
+          gh release create v1.2 Spotifly-1.2.apk SHA256SUMS.txt --target 4cbc24b8181a5dd9e295c3c8b3e510b98b4d1fca --title "Spotifly 1.2" --notes-file release-notes.md --latest
