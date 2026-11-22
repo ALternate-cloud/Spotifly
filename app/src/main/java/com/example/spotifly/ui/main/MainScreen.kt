@@ -1,5 +1,9 @@
 package com.example.spotifly.ui.main
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import com.example.spotifly.ui.components.CloudAccountSection
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -109,6 +113,8 @@ fun MainScreen(
     var pendingSearchDeepLink by remember { mutableStateOf<String?>(null) }
 
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val accountState by viewModel.accountState.collectAsStateWithLifecycle()
+    val cloudBackupState by viewModel.cloudBackupState.collectAsStateWithLifecycle()
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val localSongs by viewModel.localSongs.collectAsStateWithLifecycle()
     val allSongs by viewModel.allSongs.collectAsStateWithLifecycle()
@@ -636,6 +642,15 @@ fun MainScreen(
             containerColor = SpotifyDarkGray
         ) {
             SettingsSheet(
+                accountSection = {
+                    CloudAccountSection(
+                        account = accountState,
+                        backup = cloudBackupState,
+                        onSignIn = { context.findActivity()?.let { viewModel.signIn(it) } },
+                        onSignOut = { viewModel.signOut() },
+                        onRetry = { viewModel.retryBackup() }
+                    )
+                },
                 currentAccent = accentTheme,
                 autoplayEnabled = playbackState.isAutoplay,
                 downloadedCount = downloadedSongs.size,
@@ -722,4 +737,13 @@ fun MainScreen(
             onDismiss = { selectedTrackForPlaylist = null }
         )
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return current as? Activity
 }

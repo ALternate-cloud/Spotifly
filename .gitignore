@@ -36,3 +36,14 @@ local.properties
 *.keystore
 keystore.properties
 *.aab
+
+# Firebase emulator state and logs
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+
+# Local Firebase test tooling and administrative credentials
+.firebase-test-tools/
+*service-account*.json
+*-firebase-adminsdk-*.json

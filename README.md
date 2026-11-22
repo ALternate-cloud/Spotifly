@@ -2,13 +2,13 @@
 
 ## Download for Android
 
-[Download Spotifly 1.1 APK](https://github.com/ALternate-cloud/Spotifly/releases/download/v1.1/Spotifly-1.1.apk)
+[Download Spotifly 1.2 APK](https://github.com/ALternate-cloud/Spotifly/releases/download/v1.2/Spotifly-1.2.apk)
 
 Requires Android 7.0 or newer. Download the APK, tap it to open, and choose **Install**. If Android asks, allow installation from the browser or file manager you used.
 
-This is a debug-signed preview build. [View release details](https://github.com/ALternate-cloud/Spotifly/releases/tag/v1.1).
+This is a debug-signed preview build. [View release details](https://github.com/ALternate-cloud/Spotifly/releases/tag/v1.2).
 
-Spotifly 1.1 is a native Android music player crafted with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material3**. It brings a sleek Spotify dark aesthetic to your personal music library with support for **both online streaming and offline local device playback**.
+Spotifly is a native Android music player crafted with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material3**. It brings a sleek Spotify dark aesthetic to your personal music library with support for **both online streaming and offline local device playback**.
 
 ---
 
@@ -109,7 +109,7 @@ Configure the SDK through Android Studio, `ANDROID_HOME`, or an untracked `local
 ./gradlew assembleDebug
 ```
 
-The output is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version 1.1 uses Android version code 2.
+The output is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version 1.2 uses Android version code 3.
 
 ## Radio and saved mixes
 
@@ -135,3 +135,32 @@ Instrumented tests require a device or emulator.
 ```
 
 Keep SDK paths, credentials, signing keys, and build outputs out of source control. Release signing requires your own private keystore. Retain the signing key for future app updates.
+
+
+## Optional cloud library backup (1.2)
+
+Google sign-in in Settings enables automatic backup of playlists and liked songs
+using Firebase Authentication and Cloud Firestore. Reinstalling and signing into
+the same account restores backed-up library data. Changes waiting for backup must
+reach the server before uninstalling. Device audio files and local cover images
+remain on their original device.
+
+For your own Firebase deployment, use an Android application registered as `com.example.spotifly`, enable
+Google authentication, register the APK signing certificate's SHA-1 fingerprint,
+and place the updated client configuration at `app/google-services.json`.
+The `firestore.rules` file restricts every user's library to their authenticated
+UID. Publish those rules to the Firebase project used by the app.
+
+Test rules locally against a disposable demo project with the Firebase emulator.
+The Node packages below are development-only test tooling.
+
+```bash
+npm install --prefix .firebase-test-tools firebase-tools @firebase/rules-unit-testing firebase
+NODE_PATH="$PWD/.firebase-test-tools/node_modules" .firebase-test-tools/node_modules/.bin/firebase emulators:exec --only firestore --project demo-spotifly-rules 'node --test scripts/test-firestore-rules.cjs'
+```
+
+These checks verify unauthenticated access, owner access, cross-account access,
+and writes outside the user's namespace. Google sign-in and a completed backup
+were verified on an Android device. Reinstall-and-restore has not yet been tested
+on a device. The deterministic suite completed with 144 passed tests and one
+skipped test; Android lint reported zero errors or warnings.

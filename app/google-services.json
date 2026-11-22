@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1012698391407",
+    "project_id": "spotifly-d3135",
+    "storage_bucket": "spotifly-d3135.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1012698391407:android:7cd793cf9fe0e357657e9a",
+        "android_client_info": {
+          "package_name": "com.example.spotifly"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1012698391407-6n069iupn65sad7jko7dc141db32cfdd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.spotifly",
+            "certificate_hash": "dc55ae72833fb85affc829c9023cb8fa618ef8c7"
+          }
+        },
+        {
+          "client_id": "1012698391407-d1lkhm1s16esh56pib2esge0g6pk5t50.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAA7wmnlzEv2b0PAtCu9xgiMQhzViHCxtc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1012698391407-d1lkhm1s16esh56pib2esge0g6pk5t50.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

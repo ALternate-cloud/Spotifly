@@ -1,6 +1,9 @@
 package com.example.spotifly.ui.main
 
+import android.app.Activity
 import android.app.Application
+import com.example.spotifly.data.cloud.CloudLibrarySync
+import com.example.spotifly.data.cloud.GoogleAccountManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.spotifly.data.history.SearchHistoryManager
@@ -49,6 +52,21 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private val offlineMusicManager = OfflineMusicManager.getInstance(application)
     private val userPreferences = UserPreferencesManager.getInstance(application)
     private val statsManager = ListeningStatsManager.getInstance(application)
+
+    private val accountManager = GoogleAccountManager.getInstance(application)
+    private val librarySync = CloudLibrarySync.getInstance(application)
+    val accountState = accountManager.state
+    val cloudBackupState = librarySync.state
+
+    fun signIn(activity: Activity) {
+        viewModelScope.launch { accountManager.signIn(activity) }
+    }
+
+    fun signOut() {
+        viewModelScope.launch { accountManager.signOut() }
+    }
+
+    fun retryBackup() = librarySync.retry()
 
     val playbackState: StateFlow<PlaybackState> = musicController.playbackState
     val favorites: StateFlow<Set<String>> = musicController.favorites

@@ -37,7 +37,8 @@ class UserPreferencesManager private constructor(context: Context) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private val favoritesFile = File(context.filesDir, "favorites.json")
+    private val libraryStore = com.example.spotifly.data.cloud.LibraryProfileStore.getInstance(context)
+    val favoritesHydration = libraryStore.hydration
     private val recentlyPlayedFile = File(context.filesDir, "recently_played.json")
     private val savedAlbumsFile = File(context.filesDir, "saved_albums.json")
     private val followedArtistsFile = File(context.filesDir, "followed_artists.json")
@@ -166,24 +167,10 @@ class UserPreferencesManager private constructor(context: Context) {
 
     // ---- Favorites (persisted as full songs so liked tracks survive restarts) ----
 
-    private val _favoriteSongs = MutableStateFlow<List<Song>>(emptyList())
-    val favoriteSongs: StateFlow<List<Song>> = _favoriteSongs.asStateFlow()
-
-    val favoriteIds: Set<String>
-        get() = _favoriteSongs.value.map { it.id }.toSet()
-
-    fun isFavorite(songId: String): Boolean = _favoriteSongs.value.any { it.id == songId }
-
-    fun toggleFavorite(song: Song) {
-        _favoriteSongs.update { current ->
-            if (current.any { it.id == song.id }) {
-                current.filterNot { it.id == song.id }
-            } else {
-                listOf(song) + current
-            }
-        }
-        persistSongs(favoritesFile) { _favoriteSongs.value }
-    }
+    val favoriteSongs: StateFlow<List<Song>> = libraryStore.favorites
+    val favoriteIds: Set<String> get() = favoriteSongs.value.map { it.id }.toSet()
+    fun isFavorite(songId: String): Boolean = favoriteSongs.value.any { it.id == songId }
+    fun toggleFavorite(song: Song) = libraryStore.toggleFavorite(song)
 
     // ---- Saved albums / followed artists ----
     // Stored as full objects, like favorites, so a saved album still has a name even
@@ -237,8 +224,6 @@ class UserPreferencesManager private constructor(context: Context) {
         // Reading + decoding JSON on the main thread stalls cold start, so hydrate
         // on IO and merge by id so a toggle made meanwhile is never lost.
         scope.launch {
-            val storedFavorites = loadSongs(favoritesFile)
-            _favoriteSongs.update { current -> mergeById(current, storedFavorites) }
             val storedRecent = loadSongs(recentlyPlayedFile)
             _recentlyPlayed.update { current -> mergeById(current, storedRecent) }
             val storedAlbums = loadList<Album>(savedAlbumsFile)

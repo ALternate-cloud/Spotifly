@@ -112,8 +112,9 @@ fun AboutScreen(
                     title = "What is stored locally",
                     body = "Liked songs, playlists, play history, listening stats, follow list, " +
                         "episode resume points and audio settings are written to this app's own " +
-                        "storage. Nothing is uploaded. There is no account, no analytics and no " +
-                        "advertising SDK. Clearing app data removes all of it."
+                        "storage. Optional Google sign-in backs up playlists and liked songs to Firebase. " +
+                        "Google processes account and library data for this backup. Pending offline changes " +
+                        "need to finish syncing before uninstalling. Downloaded audio stays on this device."
                 )
             }
 
@@ -131,8 +132,8 @@ fun AboutScreen(
                     title = "Known limits",
                     body = "Crossfade is a fade-through on a single player, not two overlapping " +
                         "decks. Recommendations are heuristics over your own play log rather than " +
-                        "a trained model. Social, account-sync and Connect features are out of " +
-                        "scope for a single-device player and are not simulated."
+                        "a trained model. Cloud library backup covers playlists and liked songs. " +
+                        "Local audio files and custom cover images remain device-local."
                 )
             }
         }

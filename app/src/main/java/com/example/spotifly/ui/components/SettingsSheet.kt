@@ -89,7 +89,8 @@ fun SettingsSheet(
     offlineMode: Boolean = false,
     onOfflineModeChanged: (Boolean) -> Unit = {},
     cacheBytes: Long = 0L,
-    onClearCache: () -> Unit = {}
+    onClearCache: () -> Unit = {},
+    accountSection: @Composable () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -118,6 +119,8 @@ fun SettingsSheet(
         )
 
         Spacer(modifier = Modifier.height(18.dp))
+
+        accountSection()
 
         // Accent picker
         Row(verticalAlignment = Alignment.CenterVertically) {
