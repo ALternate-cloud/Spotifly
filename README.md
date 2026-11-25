@@ -1,64 +1,73 @@
-# 🎵 Spotifly - Spotify-Inspired Android Music Player
+# 🎵 Spotifly — Dark Cinematic Android Music Player
 
-## Download for Android
+<p align="center">
+  <a href="https://github.com/ALternate-cloud/Spotifly/releases/download/v2.0/Spotifly-2.0.apk"><strong>Download Spotifly 2.0 APK</strong></a>
+  &nbsp;•&nbsp;
+  <a href="https://github.com/ALternate-cloud/Spotifly/releases/tag/v2.0"><strong>Release Notes & SHA-256</strong></a>
+  &nbsp;•&nbsp;
+  <a href="LICENSE"><strong>Non-Commercial License</strong></a>
+</p>
 
-[Download Spotifly 2.0 APK](https://github.com/ALternate-cloud/Spotifly/releases/download/v2.0/Spotifly-2.0.apk)
+> **Requires Android 7.0 (API 24) or newer.** Download `Spotifly-2.0.apk`, tap it to open, and choose **Install** (allow installation from your browser or file manager if prompted). This is a debug-signed release compatible with `v1.1` / `v1.2` in-place upgrades so existing users keep their local library.
 
-Requires Android 7.0 or newer. Download the APK, tap it to open, and choose **Install**. If Android asks, allow installation from the browser or file manager you used.
+**Spotifly** is a native Android music player built with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material 3**. Version **2.0** introduces a **Dark Cinematic** visual system with frosted glassmorphism, dual **Curved** and **Immersive** player modes, real-time audio visualizers, tap-to-slide synchronized lyrics, live global/regional charts, lyric search, shareable story cards, granular storage tools, and playlist backup/import.
 
-This is a debug-signed preview build. [View release details](https://github.com/ALternate-cloud/Spotifly/releases/tag/v2.0).
+---
 
-Spotifly is a native Android music player crafted with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material3**. It brings a sleek Spotify dark aesthetic to your personal music library with support for **both online streaming and offline local device playback**.
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td align="center"><strong>Home & Live Charts</strong><br/><img src="docs/screenshots/home-charts.png" width="220" alt="Home & Live Charts"/></td>
+    <td align="center"><strong>Curved Player</strong><br/><img src="docs/screenshots/player-curved.png" width="220" alt="Curved Player"/></td>
+    <td align="center"><strong>Immersive Visualizer</strong><br/><img src="docs/screenshots/player-immersive.png" width="220" alt="Immersive Visualizer"/></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Slide-to-Lyrics</strong><br/><img src="docs/screenshots/slide-to-lyrics.png" width="220" alt="Dynamic Slide-to-Lyrics"/></td>
+    <td align="center"><strong>Search by Lyrics</strong><br/><img src="docs/screenshots/search-by-lyrics.png" width="220" alt="Search by Lyrics"/></td>
+    <td align="center"><strong>Storage Dashboard</strong><br/><img src="docs/screenshots/storage-dashboard.png" width="220" alt="Storage Dashboard"/></td>
+  </tr>
+</table>
 
 ---
 
 ## ✨ Key Features
 
-* **Online Song Search & Streaming**:
-  * Search JioSaavn, iTunes, and Deezer catalogs with results appearing as providers respond.
-  * Real-time metadata extraction (song titles, artist names, albums, and high-resolution 600x600 album artwork).
-  * Playback availability depends on third-party services, region, and network conditions.
-  * Curated starter trending hits ready to play immediately on launch.
+### 🎨 Dark Cinematic UI & Players
+* **Obsidian Dark Palette & Frosted Glassmorphism**: High-contrast dark surfaces, dynamic album-art ambient glow, floating glassmorphic navigation & mini-player, and an **Arc Mosaic Discovery** showcase (`DiscoverOnboardingScreen`).
+* **Curved & Immersive Player Modes**:
+  * **Curved Mode**: Squircle artwork, radial progress arc, glowing neon control pod, and quick-switch lyrics badge.
+  * **Immersive Mode**: Circular disc with orbital progress ring and an audio-reactive visualizer supporting **2D Spectrum**, **2D Waveform**, and **3D Radial** modes.
+* **Dynamic Slide-to-Lyrics**: Tap the album cover (or lyrics pill) in either player mode to smoothly slide between artwork and live **LRCLIB** synchronized karaoke lyrics; tap any lyric line to seek directly to that timestamp.
+* **Shareable Story Cards**: Generate styled `9:16` Story or `1:1` Square song cards featuring artwork, waveform graphics, and synced lyric quotes for saving to gallery or sharing natively.
 
-* **Hybrid Local Device Playback**:
-  * Scans device storage for `.mp3`, `.m4a`, `.flac`, and `.wav` files via Android's `MediaStore`.
-  * Seamless permission handling for Android 13+ (`READ_MEDIA_AUDIO`) and older Android versions.
-  * Unified player engine: mix and play online streams and local songs in the exact same playlist or queue.
+### 🔎 Discovery, Streaming & Hybrid Playback
+* **Global & Regional Charts**: Curated live shelves (*Global Top 25*, *India Top 25 / Superhits*, *UK Top 25*, *India Hot 25*) with inline play and full ranked `ChartDetailSheet`.
+* **Search by Lyrics & Related Artists**: Locate songs by remembered lyric snippets with LRCLIB line verification, and explore *"Fans Also Like"* graphs on artist detail screens.
+* **Online Catalogs + Local Device Music**: Multi-provider online streaming (JioSaavn, iTunes, Deezer) unified with local device `.mp3`, `.m4a`, `.flac`, and `.wav` playback via Android `MediaStore` (`READ_MEDIA_AUDIO` on Android 13+).
+* **Drag-and-Drop Queue & Smart Autoplay**: Reorder upcoming songs by dragging queue handles, start **Song Radio** powered by PCM Vibe Vector similarity, and save active queues as playlists.
 
-* **Spotify-Inspired UI & Aesthetics**:
-  * Authentic Spotify dark palette (`#121212` charcoal background, `#1DB954` vibrant green accents, `#242424` elevated cards).
-  * **Bottom Navigation Bar**: One-tap switching between *Home*, *Search*, and *Your Library*.
-  * **Persistent Mini Player**: Sits above the navigation bar with artwork, scrolling title, favorite toggle, and animated play/pause.
-  * **Full-Screen Player Modal**: High-res album artwork, interactive seekbar, timestamp indicators, shuffle, repeat (Off, All, One), and queue button.
-
-* **Karaoke-Style Synchronized Lyrics**:
-  * Integrated with **LRCLIB** to fetch time-synced lyrics automatically.
-  * Dynamic auto-scrolling display: the currently playing line highlights in bold glowing white while past/upcoming lines remain subtle.
-  * Interactive lyrics: tap any line to jump playback directly to that timestamp.
-
-* **Native Background Audio & Media Notification**:
-  * Built on **AndroidX Media3** with a foreground `MediaSessionService`.
-  * Lock screen playback controls with album artwork.
-  * Notification player supporting play, pause, previous, next, and seekbar scrubbing.
-  * Automatic audio focus management (auto-pauses on phone calls or headphone disconnection).
+### 🧰 Offline, Audio Effects & Power-User Tools
+* **Audio Engine & Smart Sleep Timer**: 5-band Equalizer, Bass Boost, Crossfade, Mono Audio toggle, Loudness normalization, and a **Sleep Timer** with a progressive 30-second volume fade-out.
+* **Granular Storage & Cache Dashboard**: Inspect disk usage across downloaded tracks, podcast episodes, artwork cache, and temp buffers with one-tap category cleanup.
+* **Playlist Export & Import**: Export individual playlists to `.m3u8` / `.json`, create full-library JSON backups via Android SAF or share sheets, and import from files or pasted track lists.
+* **Native Media3 Background Service**: Lock-screen and notification playback controls via `MediaSessionService`, audio focus management, and clean service/notification teardown when paused tasks are swiped from Recents.
 
 ---
 
 ## 📱 Installing the APK on Your Phone
 
-Build the debug APK using the instructions below. The output is `app/build/outputs/apk/debug/app-debug.apk`. Share built APKs as GitHub Release assets.
+### Method 1: Direct APK Download (Recommended)
+1. Download [`Spotifly-2.0.apk`](https://github.com/ALternate-cloud/Spotifly/releases/download/v2.0/Spotifly-2.0.apk) on your Android device.
+2. Open the downloaded file and tap **Install** (enable *"Allow from this source"* if prompted).
+3. Launch **Spotifly** and enjoy!
 
-### Method 1: Via USB Cable / ADB
-If your phone is plugged in with Developer Options & USB Debugging enabled:
+### Method 2: Via USB Cable / ADB
+If you build from source with Developer Options & USB Debugging enabled:
 ```bash
+./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
-
-### Method 2: Transfer Directly to Phone
-1. Transfer `app-debug.apk` to your phone via Google Drive, Bluetooth, Telegram, or USB file transfer.
-2. On your phone, tap the `.apk` file to install it.
-3. If prompted, toggle **"Allow installation from this source"**.
-4. Launch **Spotifly** and enjoy!
 
 ---
 
@@ -66,101 +75,125 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```
 com.example.spotifly
-├── MainActivity.kt                      // App entrypoint with edge-to-edge Compose
-├── Navigation.kt                        // Navigation router
-├── model/
-│   ├── Song.kt                          // Song and PlaybackState models
-│   └── Lyrics.kt                        // LRCLIB synced lyrics models
+├── MainActivity.kt                      // Edge-to-edge Compose entrypoint & deep link handling
+├── Navigation.kt / NavigationKeys.kt    // Navigation 3 router & typed route keys
+├── model/                               // Song, Lyrics, Podcast & AppSettings models
 ├── data/
-│   ├── online/OnlineMusicService.kt     // Online search, streaming URLs & LRCLIB lyrics
-│   └── local/LocalMusicRepository.kt    // MediaStore device audio scanner
+│   ├── DataRepository.kt                // Central repository orchestration
+│   ├── online/
+│   │   ├── OnlineMusicService.kt        // Search, streaming URLs & LRCLIB synced lyrics
+│   │   ├── DiscoveryService.kt          // Global/regional charts, related artists & lyric search
+│   │   └── PlaybackResolver.kt          // Multi-provider stream resolution & candidate scoring
+│   ├── local/LocalMusicRepository.kt    // MediaStore local audio scanner
+│   ├── offline/
+│   │   ├── OfflineMusicManager.kt       // Offline track downloads & caching
+│   │   └── StorageInspector.kt          // Disk allocation & cache breakdown inspector
+│   ├── playlist/
+│   │   ├── PlaylistRepository.kt        // Local playlists & liked songs storage
+│   │   └── PlaylistBackupManager.kt     // .m3u8 / .json export, import & full backup
+│   ├── autoplay/                        // PCM Vibe Vector analysis & similarity radio ranking
+│   ├── cloud/                           // Firebase Auth & Firestore library sync
+│   ├── podcast/                         // RSS podcast feeds & parser
+│   ├── prefs/                           // UserPreferencesManager
+│   └── stats/                           // Listening statistics tracking
 ├── player/
-│   └── MusicController.kt              // MediaController connector, state flow & controls
+│   ├── MusicController.kt               // MediaController binding, queue & playback state flow
+│   ├── AudioEffectsManager.kt           // 5-band EQ, Bass Boost & Loudness
+│   ├── PlaybackTuning.kt                // Crossfade & sleep timer fade curves
+│   └── MonoAudio.kt                     // Mono downmix renderer factory
 ├── service/
-│   └── MusicPlaybackService.kt          // Media3 background service & MediaSession
-├── theme/
-│   ├── Color.kt                         // Spotify green, charcoal & dark theme tokens
-│   ├── Theme.kt                         // Material3 dark color scheme
-│   └── Type.kt                          // Typography definitions
+│   └── MusicPlaybackService.kt          // Media3 foreground MediaSessionService
+├── theme/                               // Color, Type, Theme & Glassmorphism tokens
+├── widget/                              // Home-screen Now Playing widget
 └── ui/
-    ├── components/
-    │   ├── TrackItem.kt                 // Standard song row item
-    │   ├── MiniPlayer.kt                // Sticky bottom mini player
-    │   ├── FullPlayerModal.kt           // Full-screen player modal
-    │   ├── LyricsView.kt                // Synchronized scrolling lyrics
-    │   └── QueueBottomSheet.kt         // Playback queue bottom sheet
-    ├── home/HomeScreen.kt               // Personalized home with greeting & carousels
-    ├── search/SearchScreen.kt           // Live search & genre browse categories
-    ├── library/LibraryScreen.kt         // Device audio scanner & liked songs
-    └── main/
-        ├── MainScreen.kt                // Scaffold, bottom navigation & sheets
-        └── MainScreenViewModel.kt       // ViewModel binding UI to MusicController
+    ├── main/                            // MainScreen scaffold & MainScreenViewModel
+    ├── home/HomeScreen.kt               // Hero trending banner, charts & personalized feed
+    ├── search/SearchScreen.kt           // Songs, Lyrics, Albums & Artists search
+    ├── library/                         // LibraryScreen & PlaylistDetailView
+    ├── onboarding/                      // DiscoverOnboardingScreen (Arc Mosaic showcase)
+    ├── album/ & artist/                 // AlbumDetailScreen & ArtistDetailScreen
+    ├── settings/                        // AudioSettingsScreen, StorageDashboardScreen & AboutScreen
+    ├── stats/StatsScreen.kt             // Listening stats screen
+    ├── podcast/PodcastsScreen.kt        // Podcasts browser
+    └── components/
+        ├── MiniPlayer.kt                // Glassmorphic persistent mini-player
+        ├── FullPlayerModal.kt           // Full player modal (Curved & Immersive switcher)
+        ├── CurvedPlayerWidgets.kt       // Radial arc seekbar & neon control pod
+        ├── ImmersivePlayerWidgets.kt    // Circular disc & 2D/3D audio visualizer
+        ├── LyricsView.kt                // ArtworkLyricsSlideStage & synced lyrics view
+        ├── QueueBottomSheet.kt          // Drag-and-drop queue sheet
+        ├── ChartDetailSheet.kt          // Full ranked chart sheet
+        ├── ShareCardModal.kt / ShareUtils.kt // 9:16 & 1:1 Story card generator & sharing
+        └── SettingsSheet.kt             // App settings & cloud backup controls
 ```
 
 ---
 
-## 💻 Rebuilding the Project
+## 💻 Rebuilding from Source
 
-Install Android SDK Platform 36 and accept its licenses through Android Studio or the Android command-line tools. Use JDK 17 or newer to run Gradle. Kotlin compilation uses a JDK 17 toolchain, which the configured resolver can provision. Set `JAVA_HOME` if Java is unavailable on `PATH`.
+Install **Android SDK Platform 36** and accept its licenses through Android Studio or the Android command-line tools. Use **JDK 17 or newer** to run Gradle (`compileOptions` and Kotlin toolchain target JVM 17).
 
-Configure the SDK through Android Studio, `ANDROID_HOME`, or an untracked `local.properties` file containing `sdk.dir=/absolute/path/to/Android/Sdk`.
+Configure the SDK via Android Studio, `ANDROID_HOME`, or an untracked `local.properties` file containing `sdk.dir=/absolute/path/to/Android/Sdk`.
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-The output is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version 2.0 uses Android version code 6.
+The output APK is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version **2.0** uses Android `versionCode 6`.
 
-## Radio and saved mixes
+---
 
-Choose **Start Radio** from a song's menu to queue similar songs. Autoplay uses measured audio features where available, with metadata as a fallback. Open the queue and choose **Save as Playlist** to save the current mix in Your Library.
+## 📻 Radio & Saved Mixes
 
-## Verification
+Choose **Start Radio** from any song's menu to queue similar tracks. Autoplay uses measured PCM audio features (`AudioVibeAnalyzer` / `PcmVibeAnalyzer`) where available, with metadata ranking as a fallback. Open the queue and tap **Save** to store the current mix as a playlist in **Your Library**.
+
+---
+
+## ✅ Verification
 
 ```bash
 ./gradlew lintDebug
 ./gradlew testDebugUnitTest --tests 'com.example.spotifly.data.*' --tests 'com.example.spotifly.player.*' --tests 'com.example.spotifly.model.*' --tests 'com.example.spotifly.ui.*'
 ```
 
-`AcceptanceTests` calls live services and generates a report. The live test in `SearchCoverageTest` is opt-in.
+To run the full unit test suite (including `Track3FeaturesTest` and `MusicPlaybackServiceTest`):
+```bash
+./gradlew testDebugUnitTest
+```
 
+`AcceptanceTests` calls live services and generates a report. The live test in `SearchCoverageTest` is opt-in:
 ```bash
 SPOTIFLY_LIVE_TESTS=1 ./gradlew testDebugUnitTest --tests 'com.example.spotifly.data.online.SearchCoverageTest'
 ```
 
-Instrumented tests require a device or emulator.
-
+Instrumented tests require a connected Android device or emulator:
 ```bash
 ./gradlew connectedDebugAndroidTest
 ```
 
-Keep SDK paths, credentials, signing keys, and build outputs out of source control. Release signing requires your own private keystore. Retain the signing key for future app updates.
+> Keep SDK paths, credentials, signing keys, and build outputs out of source control. Release builds should use your own private keystore retained across updates.
 
+---
 
-## Optional cloud library backup (1.2)
+## ☁️ Optional Cloud Library Backup
 
-Google sign-in in Settings enables automatic backup of playlists and liked songs
-using Firebase Authentication and Cloud Firestore. Reinstalling and signing into
-the same account restores backed-up library data. Changes waiting for backup must
-reach the server before uninstalling. Device audio files and local cover images
-remain on their original device.
+Google sign-in in **Settings** enables automatic backup of playlists and liked songs using Firebase Authentication and Cloud Firestore. Reinstalling and signing into the same account restores backed-up library data (ensure pending changes finish syncing before uninstalling; local device audio files and local cover images stay on their original device).
 
-For your own Firebase deployment, use an Android application registered as `com.example.spotifly`, enable
-Google authentication, register the APK signing certificate's SHA-1 fingerprint,
-and place the updated client configuration at `app/google-services.json`.
-The `firestore.rules` file restricts every user's library to their authenticated
-UID. Publish those rules to the Firebase project used by the app.
+For your own Firebase deployment:
+1. Register an Android app as `com.example.spotifly`.
+2. Enable Google authentication and add your APK signing certificate's SHA-1 fingerprint.
+3. Place your client config at `app/google-services.json` and deploy [`firestore.rules`](firestore.rules) (which restricts each user's data to their authenticated UID).
 
-Test rules locally against a disposable demo project with the Firebase emulator.
-The Node packages below are development-only test tooling.
-
+Test Firestore security rules locally against the Firebase emulator:
 ```bash
 npm install --prefix .firebase-test-tools firebase-tools @firebase/rules-unit-testing firebase
 NODE_PATH="$PWD/.firebase-test-tools/node_modules" .firebase-test-tools/node_modules/.bin/firebase emulators:exec --only firestore --project demo-spotifly-rules 'node --test scripts/test-firestore-rules.cjs'
 ```
 
-These checks verify unauthenticated access, owner access, cross-account access,
-and writes outside the user's namespace. Google sign-in and a completed backup
-were verified on an Android device. Reinstall-and-restore has not yet been tested
-on a device. The deterministic suite completed with 144 passed tests and one
-skipped test; Android lint reported zero errors or warnings.
+---
+
+## 📄 License
+
+Copyright © 2026 **ARYAN ALTERNATE (ALternate-cloud)**.
+
+Spotifly is licensed under a **[Non-Commercial License](LICENSE)** — you are free to view, use, and modify the code for personal and non-commercial purposes, while any commercial use, sale, or monetization requires prior written permission.
