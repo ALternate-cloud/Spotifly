@@ -4,6 +4,7 @@ import androidx.core.net.toUri
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -65,6 +66,7 @@ class MusicController private constructor(private val context: Context) {
     private var autoplayJob: Job? = null
     private var preResolveJob: Job? = null
     private var refillJob: Job? = null
+    private var resolveJob: Job? = null
     private var analysisJob: Job? = null
     private var analyzingSongId: String? = null
     private val fastSkippedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -76,6 +78,9 @@ class MusicController private constructor(private val context: Context) {
      * so a slow network response cannot override a manual action.
      */
     private var autoplayToken = 0
+    private var queuePlayToken = 0
+    @Volatile
+    private var resolvingTransitionSongId: String? = null
     private var lastAutoplayAttemptSongId: String? = null
     private var lastAutoplayAttemptAt = 0L
     private var isFadingOut = false
@@ -140,16 +145,45 @@ class MusicController private constructor(private val context: Context) {
     }
 
     /**
-     * Runs [action] against the bound controller, or keeps the latest action and runs it
-     * as soon as binding finishes — otherwise the first play tap on a cold start is dropped.
+     * Runs [action] against the bound controller, reconnecting if the service
+     * binding was previously dropped on task removal, or queuing [action] until
+     * binding finishes — otherwise the first play tap on a cold start is dropped.
      */
     private fun withController(action: (MediaController) -> Unit) {
+        if (controllerFuture == null) {
+            initializeController()
+        }
+        if (progressJob?.isActive != true) {
+            startPositionTicker()
+        }
         val controller = mediaController
         if (controller != null && isControllerReady) {
             action(controller)
         } else {
             pendingAction = action
         }
+    }
+
+    /**
+     * Drops the local MediaController binding when playback is paused/idle so
+     * Android immediately tears down [MusicPlaybackService] on task removal
+     * instead of pinning a phantom paused media notification.
+     */
+    fun releaseBindingIfPaused() {
+        val ctrl = mediaController
+        if (_playbackState.value.isPlaying || ctrl?.playWhenReady == true) return
+        progressJob?.cancel()
+        progressJob = null
+        preResolveJob?.cancel()
+        refillJob?.cancel()
+        fadeJob?.cancel()
+        resolveJob?.cancel()
+        pendingAction = null
+        isControllerReady = false
+        mediaController = null
+        controllerFuture?.let { MediaController.releaseFuture(it) }
+        controllerFuture = null
+        _playbackState.update { it.copy(isPlaying = false, isBuffering = false) }
     }
 
     private fun applyRestoredSettings(controller: MediaController) {
@@ -224,6 +258,11 @@ class MusicController private constructor(private val context: Context) {
                 // Dead/broken stream or 403/410: attempt re-resolution once, then skip silently
                 val failedSong = _playbackState.value.currentSong
                 val failedId = failedSong?.id
+                // If an unresolved queue item transitioned before its stream URL finished
+                // resolving, let that in-flight resolution finish instead of error-skipping.
+                if (failedSong != null && failedId == resolvingTransitionSongId && !failedSong.hasPlayableSource()) {
+                    return
+                }
                 val retries = if (failedId == erroredSongId) erroredSongRetries + 1 else 1
                 erroredSongId = failedId
                 erroredSongRetries = retries
@@ -232,11 +271,7 @@ class MusicController private constructor(private val context: Context) {
                     scope.launch {
                         val refreshed = runCatching { PlaybackResolver.reResolve(failedSong) }.getOrNull()
                         if (refreshed != null && !refreshed.streamUrl.isNullOrEmpty()) {
-                            updateResolvedSong(refreshed)
-                            withController { ctrl ->
-                                ctrl.prepare()
-                                ctrl.play()
-                            }
+                            updateResolvedSong(refreshed, prepareIfCurrent = true, playIfCurrent = true)
                             return@launch
                         }
                         skipNextSilently()
@@ -319,13 +354,20 @@ class MusicController private constructor(private val context: Context) {
                     analyzeInBackground(newSong)
 
                     // Ensure the current song has a resolved streamUrl
-                    if (!newSong.isLocal && !newSong.isPodcast && newSong.streamUrl.isNullOrEmpty()) {
+                    if (!newSong.isLocal && !newSong.isPodcast && !newSong.hasPlayableSource()) {
+                        resolvingTransitionSongId = newSong.id
                         scope.launch {
-                            val resolved = runCatching { PlaybackResolver.resolve(newSong) }.getOrNull()
-                            if (resolved != null && !resolved.streamUrl.isNullOrEmpty()) {
-                                updateResolvedSong(resolved)
-                            } else {
-                                skipNextSilently()
+                            try {
+                                val resolved = resolveForPlayback(newSong)
+                                if (resolved != null && _playbackState.value.currentSong?.id == newSong.id) {
+                                    updateResolvedSong(resolved, prepareIfCurrent = true, playIfCurrent = true)
+                                } else if (_playbackState.value.currentSong?.id == newSong.id) {
+                                    skipNextSilently()
+                                }
+                            } finally {
+                                if (resolvingTransitionSongId == newSong.id) {
+                                    resolvingTransitionSongId = null
+                                }
                             }
                         }
                     }
@@ -497,6 +539,8 @@ class MusicController private constructor(private val context: Context) {
         cancelAutoplayFetch()
         preResolveJob?.cancel()
         refillJob?.cancel()
+        resolveJob?.cancel()
+        queuePlayToken++
         trackStartTimeMs = System.currentTimeMillis()
 
         _playbackState.update {
@@ -559,15 +603,19 @@ class MusicController private constructor(private val context: Context) {
         cancelAutoplayFetch()
         preResolveJob?.cancel()
         refillJob?.cancel()
+        resolveJob?.cancel()
+        val token = ++queuePlayToken
         trackStartTimeMs = System.currentTimeMillis()
 
         val requestedIndex = startIndex.coerceIn(0, songs.lastIndex)
         val requestedSong = songs[requestedIndex]
         val previous = _playbackState.value
-        val wasSameSong = previous.currentSong?.id == requestedSong.id &&
-            previous.queue == songs
+        val wasSamePlayable = previous.currentSong?.id == requestedSong.id &&
+            previous.currentSong.hasPlayableSource() &&
+            previous.queue == songs &&
+            (mediaController?.mediaItemCount ?: 0) > 0
 
-        if (wasSameSong) {
+        if (wasSamePlayable) {
             withController { controller ->
                 controller.seekTo(0)
                 controller.play()
@@ -591,20 +639,29 @@ class MusicController private constructor(private val context: Context) {
             )
         }
 
-        scope.launch {
-            val resolved = if (requestedSong.isLocal || !requestedSong.streamUrl.isNullOrEmpty()) {
-                requestedSong
-            } else {
-                PlaybackResolver.resolve(requestedSong) ?: requestedSong
+        resolveJob = scope.launch {
+            val resolved = resolveForPlayback(requestedSong)
+            if (token != queuePlayToken) return@launch
+
+            if (resolved == null) {
+                _playbackState.update {
+                    it.copy(
+                        isBuffering = false,
+                        playbackError = "Couldn't play '${requestedSong.title}' — stream unavailable"
+                    )
+                }
+                return@launch
             }
 
             val updatedSongs = songs.toMutableList()
             updatedSongs[requestedIndex] = resolved
+            val resolvedDurationMs = if (resolved.durationMs > 0) resolved.durationMs else requestedSong.durationMs
 
             _playbackState.update {
                 it.copy(
                     queue = updatedSongs,
                     currentSong = resolved,
+                    durationMs = resolvedDurationMs,
                     isBuffering = false
                 )
             }
@@ -627,6 +684,16 @@ class MusicController private constructor(private val context: Context) {
             if (controller.isPlaying) {
                 controller.pause()
             } else {
+                val state = _playbackState.value
+                if (controller.mediaItemCount == 0 && state.queue.isNotEmpty()) {
+                    val resumeIndex = state.currentIndex.coerceIn(0, state.queue.lastIndex)
+                    val resumePos = state.currentPositionMs.coerceAtLeast(0L)
+                    playQueue(state.queue, resumeIndex)
+                    if (resumePos > 0L) {
+                        seekTo(resumePos)
+                    }
+                    return@withController
+                }
                 if (controller.playbackState == Player.STATE_IDLE || controller.playbackState == Player.STATE_ENDED) {
                     controller.prepare()
                 }
@@ -648,21 +715,35 @@ class MusicController private constructor(private val context: Context) {
             fastSkippedIds.add(current.id)
             if (current.internalId.isNotBlank()) fastSkippedIds.add(current.internalId)
         }
-        mediaController?.let {
-            if (it.hasNextMediaItem()) {
-                it.seekToNextMediaItem()
-            } else if (_playbackState.value.repeatMode == RepeatMode.ALL && _playbackState.value.queue.isNotEmpty()) {
-                playQueue(_playbackState.value.queue, 0)
+        val state = _playbackState.value
+        val controller = mediaController ?: return
+        val nextIndex = controller.nextMediaItemIndex
+        if (nextIndex != C.INDEX_UNSET && nextIndex in state.queue.indices) {
+            val nextSong = state.queue[nextIndex]
+            if (nextSong.hasPlayableSource()) {
+                controller.seekToNextMediaItem()
+            } else {
+                resolveAndSeekToIndex(nextIndex)
             }
+        } else if (state.repeatMode == RepeatMode.ALL && state.queue.isNotEmpty()) {
+            playQueue(state.queue, 0)
         }
     }
 
     fun skipPrevious() {
-        mediaController?.let {
-            if (it.currentPosition > 3000) {
-                it.seekTo(0)
-            } else if (it.hasPreviousMediaItem()) {
-                it.seekToPreviousMediaItem()
+        val state = _playbackState.value
+        val controller = mediaController ?: return
+        if (controller.currentPosition > 3000) {
+            controller.seekTo(0)
+            return
+        }
+        val prevIndex = controller.previousMediaItemIndex
+        if (prevIndex != C.INDEX_UNSET && prevIndex in state.queue.indices) {
+            val prevSong = state.queue[prevIndex]
+            if (prevSong.hasPlayableSource()) {
+                controller.seekToPreviousMediaItem()
+            } else {
+                resolveAndSeekToIndex(prevIndex)
             }
         }
     }
@@ -753,12 +834,27 @@ class MusicController private constructor(private val context: Context) {
         sleepTimerJob = scope.launch {
             while (isActive) {
                 val end = _sleepTimerEndMs.value ?: break
-                if (System.currentTimeMillis() >= end) {
-                    mediaController?.pause()
+                val remaining = end - System.currentTimeMillis()
+                if (remaining <= 0L) {
+                    mediaController?.let { controller ->
+                        controller.volume = 0f
+                        controller.pause()
+                    }
                     _sleepTimerEndMs.value = null
+                    delay(150)
+                    mediaController?.let { controller ->
+                        if (!controller.isPlaying) controller.volume = 1f
+                    }
                     break
                 }
-                delay(1_000)
+
+                if (remaining <= SLEEP_FADE_WINDOW_MS) {
+                    mediaController?.volume = computeSleepFadeVolume(remaining)
+                    delay(250L)
+                } else {
+                    mediaController?.let { if (!isFadingOut && it.volume < 0.99f) it.volume = 1f }
+                    delay(minOf(1_000L, remaining - SLEEP_FADE_WINDOW_MS + 50L))
+                }
             }
         }
     }
@@ -768,6 +864,9 @@ class MusicController private constructor(private val context: Context) {
         sleepTimerJob = null
         _sleepTimerEndMs.value = null
         _sleepAtEndOfTrack.value = false
+        if (!isFadingOut) {
+            mediaController?.volume = 1f
+        }
     }
 
     /**
@@ -914,7 +1013,58 @@ class MusicController private constructor(private val context: Context) {
         }
     }
 
-    private fun updateResolvedSong(resolved: Song) {
+    private fun Song.hasPlayableSource(): Boolean {
+        if (isLocal && !contentUriString.isNullOrEmpty()) return true
+        if (!localFilePath.isNullOrEmpty() && java.io.File(localFilePath).exists()) return true
+        val cleanId = id.replace(Regex("[^a-zA-Z0-9_]"), "_")
+        val offlineFile = java.io.File(context.filesDir, "offline_music/$cleanId.m4a")
+        if (offlineFile.exists() && offlineFile.length() > 0) return true
+        return !streamUrl.isNullOrEmpty()
+    }
+
+    private suspend fun resolveForPlayback(song: Song): Song? {
+        if (song.hasPlayableSource()) return song
+        val resolved = runCatching { PlaybackResolver.resolve(song) }.getOrNull() ?: return null
+        return resolved.takeIf { it.hasPlayableSource() }
+    }
+
+    private fun resolveAndSeekToIndex(targetIndex: Int) {
+        val state = _playbackState.value
+        val targetSong = state.queue.getOrNull(targetIndex) ?: return
+        resolveJob?.cancel()
+        val token = ++queuePlayToken
+        _playbackState.update { it.copy(isBuffering = true, playbackError = null) }
+
+        resolveJob = scope.launch {
+            val resolved = resolveForPlayback(targetSong)
+            if (token != queuePlayToken) return@launch
+            if (resolved == null) {
+                _playbackState.update {
+                    it.copy(
+                        isBuffering = false,
+                        playbackError = "Couldn't play '${targetSong.title}' — stream unavailable"
+                    )
+                }
+                return@launch
+            }
+
+            updateResolvedSong(resolved)
+            _playbackState.update { it.copy(isBuffering = false) }
+            withController { controller ->
+                if (targetIndex in 0 until controller.mediaItemCount) {
+                    controller.seekTo(targetIndex, 0L)
+                    controller.prepare()
+                    controller.play()
+                }
+            }
+        }
+    }
+
+    private fun updateResolvedSong(
+        resolved: Song,
+        prepareIfCurrent: Boolean = false,
+        playIfCurrent: Boolean = false
+    ) {
         val state = _playbackState.value
         val idx = state.queue.indexOfFirst {
             it.id == resolved.id || (it.internalId.isNotBlank() && it.internalId == resolved.internalId)
@@ -933,13 +1083,24 @@ class MusicController private constructor(private val context: Context) {
                     queue = newQueue,
                     manualQueue = newManual,
                     autoplayQueue = newAuto,
-                    currentSong = if (state.currentIndex == idx) resolved else state.currentSong
+                    currentSong = if (state.currentIndex == idx) resolved else state.currentSong,
+                    durationMs = if (state.currentIndex == idx && resolved.durationMs > 0) {
+                        resolved.durationMs
+                    } else {
+                        it.durationMs
+                    }
                 )
             }
 
             withController { controller ->
                 if (idx >= 0 && idx < controller.mediaItemCount) {
                     controller.replaceMediaItem(idx, resolved.toMediaItem())
+                    if (prepareIfCurrent && idx == controller.currentMediaItemIndex) {
+                        controller.prepare()
+                        if (playIfCurrent) {
+                            controller.play()
+                        }
+                    }
                 }
             }
         }
@@ -951,9 +1112,9 @@ class MusicController private constructor(private val context: Context) {
             val state = _playbackState.value
             val upcoming = state.queue.drop((state.currentIndex + 1).coerceAtLeast(0)).take(3)
             for (song in upcoming) {
-                if (!song.isLocal && !song.isPodcast && song.streamUrl.isNullOrEmpty()) {
-                    val resolved = runCatching { PlaybackResolver.resolve(song) }.getOrNull()
-                    if (resolved != null && !resolved.streamUrl.isNullOrEmpty()) {
+                if (!song.isLocal && !song.isPodcast && !song.hasPlayableSource()) {
+                    val resolved = resolveForPlayback(song)
+                    if (resolved != null) {
                         withContext(Dispatchers.Main) {
                             updateResolvedSong(resolved)
                         }
@@ -964,17 +1125,30 @@ class MusicController private constructor(private val context: Context) {
     }
 
     private fun skipNextSilently() {
-        scope.launch {
-            delay(300)
-            withController { controller ->
-                if (controller.hasNextMediaItem()) {
-                    controller.seekToNextMediaItem()
-                    controller.prepare()
-                    controller.play()
-                } else {
-                    _playbackState.update { it.copy(isBuffering = false) }
+        resolveJob?.cancel()
+        val token = ++queuePlayToken
+        resolveJob = scope.launch {
+            delay(250)
+            if (token != queuePlayToken) return@launch
+            val state = _playbackState.value
+            val queue = state.queue
+            val startAfter = (state.currentIndex + 1).coerceAtLeast(0)
+            for (idx in startAfter until queue.size) {
+                if (token != queuePlayToken) return@launch
+                val candidate = queue[idx]
+                val resolved = resolveForPlayback(candidate) ?: continue
+                if (token != queuePlayToken) return@launch
+                updateResolvedSong(resolved)
+                withController { controller ->
+                    if (idx in 0 until controller.mediaItemCount) {
+                        controller.seekTo(idx, 0L)
+                        controller.prepare()
+                        controller.play()
+                    }
                 }
+                return@launch
             }
+            _playbackState.update { it.copy(isBuffering = false) }
         }
     }
 
@@ -1164,12 +1338,13 @@ class MusicController private constructor(private val context: Context) {
 
     /** Reorders the queue and keeps the player's playlist in sync. */
     fun moveQueueItem(from: Int, to: Int) {
-        val queue = _playbackState.value.queue.toMutableList()
+        val state = _playbackState.value
+        val queue = state.queue.toMutableList()
         if (from !in queue.indices || to !in queue.indices || from == to) return
         val moved = queue.removeAt(from)
         queue.add(to, moved)
 
-        val current = _playbackState.value.currentIndex
+        val current = state.currentIndex
         val newCurrent = when {
             current == from -> to
             current in minOf(from, to)..maxOf(from, to) -> if (from < to) current - 1 else current + 1
@@ -1177,9 +1352,18 @@ class MusicController private constructor(private val context: Context) {
         }
 
         val upcoming = if (newCurrent < queue.lastIndex) queue.subList(newCurrent + 1, queue.size) else emptyList()
-        val manualSet = _playbackState.value.manualQueue.map { it.id }.toSet()
-        val newManual = upcoming.filter { it.id in manualSet }
-        val newAuto = upcoming.filterNot { it.id in manualSet }
+        val wasCategorized = state.manualQueue.isNotEmpty() || state.autoplayQueue.isNotEmpty()
+        val (newManual, newAuto) = if (!wasCategorized) {
+            // Preserve uncategorized album/playlist upcoming mode so QueueBottomSheet
+            // does not flip sections mid-drag.
+            emptyList<Song>() to emptyList()
+        } else {
+            val manualSet = state.manualQueue.map { it.id }.toSet()
+            val autoSet = state.autoplayQueue.map { it.id }.toSet()
+            val filteredManual = upcoming.filter { it.id in manualSet }
+            val filteredAuto = upcoming.filter { it.id in autoSet && it.id !in manualSet }
+            filteredManual to filteredAuto
+        }
 
         _playbackState.update {
             it.copy(
@@ -1191,6 +1375,7 @@ class MusicController private constructor(private val context: Context) {
             )
         }
         mediaController?.moveMediaItem(from, to)
+        saveSession()
     }
 
     /** Removes a track from the queue (skipping it if currently playing). */
@@ -1299,6 +1484,10 @@ class MusicController private constructor(private val context: Context) {
                 instance ?: MusicController(context.applicationContext).also { instance = it }
             }
         }
+
+        fun releaseBindingIfPaused() {
+            instance?.releaseBindingIfPaused()
+        }
     }
 }
 
@@ -1319,4 +1508,19 @@ internal fun resolveQueueIndex(
         return controllerIndex
     }
     return queue.indexOfFirst { it.id == mediaId }
+}
+
+internal const val SLEEP_FADE_WINDOW_MS = 30_000L
+
+/**
+ * Smooth quadratic taper over the final [fadeWindowMs] before the sleep timer pauses playback.
+ */
+internal fun computeSleepFadeVolume(
+    remainingMs: Long,
+    fadeWindowMs: Long = SLEEP_FADE_WINDOW_MS
+): Float {
+    if (remainingMs <= 0L) return 0f
+    if (fadeWindowMs <= 0L || remainingMs >= fadeWindowMs) return 1f
+    val linear = remainingMs.toFloat() / fadeWindowMs.toFloat()
+    return (linear * linear).coerceIn(0f, 1f)
 }

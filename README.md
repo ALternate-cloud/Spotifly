@@ -2,11 +2,11 @@
 
 ## Download for Android
 
-[Download Spotifly 1.2 APK](https://github.com/ALternate-cloud/Spotifly/releases/download/v1.2/Spotifly-1.2.apk)
+[Download Spotifly 2.0 APK](https://github.com/ALternate-cloud/Spotifly/releases/download/v2.0/Spotifly-2.0.apk)
 
 Requires Android 7.0 or newer. Download the APK, tap it to open, and choose **Install**. If Android asks, allow installation from the browser or file manager you used.
 
-This is a debug-signed preview build. [View release details](https://github.com/ALternate-cloud/Spotifly/releases/tag/v1.2).
+This is a debug-signed preview build. [View release details](https://github.com/ALternate-cloud/Spotifly/releases/tag/v2.0).
 
 Spotifly is a native Android music player crafted with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material3**. It brings a sleek Spotify dark aesthetic to your personal music library with support for **both online streaming and offline local device playback**.
 
@@ -109,7 +109,7 @@ Configure the SDK through Android Studio, `ANDROID_HOME`, or an untracked `local
 ./gradlew assembleDebug
 ```
 
-The output is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version 1.2 uses Android version code 3.
+The output is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version 2.0 uses Android version code 6.
 
 ## Radio and saved mixes
 

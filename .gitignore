@@ -47,3 +47,4 @@ ui-debug.log*
 .firebase-test-tools/
 *service-account*.json
 *-firebase-adminsdk-*.json
+.git_repo/

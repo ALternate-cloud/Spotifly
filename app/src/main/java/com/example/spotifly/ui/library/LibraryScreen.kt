@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MusicNote
@@ -95,6 +97,11 @@ import com.example.spotifly.theme.SpotifyElevated
 import com.example.spotifly.theme.SpotifyGreen
 import com.example.spotifly.theme.SpotifyTextSecondary
 import com.example.spotifly.theme.SpotifyWhite
+import com.example.spotifly.theme.SpotifyGreenBright
+import com.example.spotifly.theme.Glassmorphism
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.shadow
 import com.example.spotifly.ui.components.TrackItem
 import java.io.File
 import com.example.spotifly.theme.SpotifyBlack
@@ -148,6 +155,12 @@ fun LibraryScreen(
     onSetPlaylistCover: (playlistId: String, uri: Uri) -> Unit = { _, _ -> },
     onRemovePlaylistCover: (String) -> Unit = {},
     onDownloadPlaylist: (Playlist) -> Unit = {},
+    onOpenStorageDashboard: () -> Unit = {},
+    onImportPlaylistsUri: (Uri, (String) -> Unit) -> Unit = { _, _ -> },
+    onImportPlaylistsText: (String, String, (String) -> Unit) -> Unit = { _, _, _ -> },
+    onBackupAllPlaylistsUri: (Uri, (Boolean) -> Unit) -> Unit = { _, _ -> },
+    onSavePlaylistExportUri: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
+    onSharePlaylistExportFile: (filename: String, mimeType: String, content: String) -> Unit = { _, _, _ -> },
     openPlaylistId: String? = null,
     onPlaylistDeepLinkConsumed: () -> Unit = {},
 ) {
@@ -155,10 +168,32 @@ fun LibraryScreen(
     var selectedTab by remember { mutableStateOf("Playlists") }
     var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var showImportPlaylistDialog by remember { mutableStateOf(false) }
+    var importNameInput by remember { mutableStateOf("") }
+    var importTextInput by remember { mutableStateOf("") }
     var newPlaylistName by remember { mutableStateOf("") }
+    var importBannerMessage by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var librarySort by remember { mutableStateOf(LibrarySort.RECENT) }
     var playlistSort by remember { mutableStateOf(PlaylistListSort.RECENT) }
+
+    val importFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            onImportPlaylistsUri(uri) { msg -> importBannerMessage = msg }
+        }
+    }
+
+    val backupAllPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            onBackupAllPlaylistsUri(uri) { ok ->
+                importBannerMessage = if (ok) "Saved library playlists backup (.json)" else "Couldn't write backup"
+            }
+        }
+    }
 
     // A spotifly://playlist link selects the playlist once, then releases the
     // request so backing out of the detail does not reopen it.
@@ -195,6 +230,8 @@ fun LibraryScreen(
             onSetCover = { uri -> onSetPlaylistCover(activePlaylist.id, uri) },
             onRemoveCover = { onRemovePlaylistCover(activePlaylist.id) },
             onDownloadAll = { onDownloadPlaylist(activePlaylist) },
+            onSaveExportUri = onSavePlaylistExportUri,
+            onShareExportFile = onSharePlaylistExportFile,
             modifier = modifier
         )
         return
@@ -286,8 +323,20 @@ fun LibraryScreen(
                 fontWeight = FontWeight.Bold
             )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onToggleLayout) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Frosted Glass Layout Toggle Button
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x24FFFFFF))
+                        .border(1.dp, Glassmorphism.specularBorderBrush, CircleShape)
+                        .clickable(onClick = onToggleLayout),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         imageVector = if (libraryLayout == LibraryLayout.GRID) {
                             Icons.AutoMirrored.Filled.ViewList
@@ -299,18 +348,35 @@ fun LibraryScreen(
                         } else {
                             "Show as grid"
                         },
-                        tint = SpotifyWhite
+                        tint = SpotifyWhite,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
                 when (selectedTab) {
-                    "Device" -> IconButton(onClick = {
-                        if (hasPermission) onScanLocalSongs()
-                        else permissionLauncher.launch(permissionToRequest)
-                    }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Scan", tint = SpotifyWhite)
+                    "Device" -> Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x24FFFFFF))
+                            .border(1.dp, Glassmorphism.specularBorderBrush, CircleShape)
+                            .clickable {
+                                if (hasPermission) onScanLocalSongs()
+                                else permissionLauncher.launch(permissionToRequest)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Scan", tint = SpotifyWhite, modifier = Modifier.size(19.dp))
                     }
-                    "Playlists" -> IconButton(onClick = { showCreatePlaylistDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "New Playlist", tint = SpotifyWhite)
+                    "Playlists" -> Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x24FFFFFF))
+                            .border(1.dp, Glassmorphism.specularBorderBrush, CircleShape)
+                            .clickable { showCreatePlaylistDialog = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "New Playlist", tint = SpotifyWhite, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -318,6 +384,7 @@ fun LibraryScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Frosted Glass Library Tabs
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -326,24 +393,27 @@ fun LibraryScreen(
         ) {
             libraryTabs.forEach { tab ->
                 val isSelected = selectedTab == tab
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { selectedTab = tab },
-                    label = {
-                        Text(
-                            text = tab,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                Box(
+                    modifier = Modifier
+                        .shadow(if (isSelected) 8.dp else 2.dp, RoundedCornerShape(20.dp), ambientColor = if (isSelected) SpotifyGreen else Color.Transparent)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isSelected) Glassmorphism.accentGlassBrush(SpotifyGreen) else Glassmorphism.subtleGlassFill)
+                        .border(
+                            1.2.dp,
+                            if (isSelected) Glassmorphism.accentGlassBorderBrush(SpotifyGreen) else Glassmorphism.specularBorderBrush,
+                            RoundedCornerShape(20.dp)
                         )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = SpotifyGreen,
-                        selectedLabelColor = SpotifyBlack,
-                        containerColor = SpotifyCard,
-                        labelColor = SpotifyWhite
-                    ),
-                    border = null
-                )
+                        .clickable { selectedTab = tab }
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = tab,
+                        color = if (isSelected) SpotifyGreenBright else SpotifyWhite,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
             }
         }
 
@@ -352,8 +422,9 @@ fun LibraryScreen(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Frosted Glass Search in Library Field
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -373,22 +444,27 @@ fun LibraryScreen(
                     )
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = SpotifyCard,
-                    unfocusedContainerColor = SpotifyCard,
+                    focusedContainerColor = Color(0x28FFFFFF),
+                    unfocusedContainerColor = Color(0x18FFFFFF),
                     focusedBorderColor = SpotifyGreen,
-                    unfocusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color(0x20FFFFFF),
                     focusedTextColor = SpotifyWhite,
                     unfocusedTextColor = SpotifyWhite
                 ),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .shadow(8.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black)
+                    .border(1.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(14.dp))
             )
 
             val sortLabel = if (selectedTab == "Playlists") playlistSort.label else librarySort.label
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0x18FFFFFF))
+                    .border(1.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(14.dp))
                     .clickable {
                         if (selectedTab == "Playlists") {
                             playlistSort = playlistSort.next()
@@ -396,21 +472,21 @@ fun LibraryScreen(
                             librarySort = librarySort.next()
                         }
                     }
-                    .padding(horizontal = 6.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Sort,
                     contentDescription = "Sort",
-                    tint = SpotifyTextSecondary,
+                    tint = SpotifyWhite,
                     modifier = Modifier.size(16.dp)
                 )
-                Spacer(modifier = Modifier.width(3.dp))
                 Text(
                     text = sortLabel,
                     color = SpotifyWhite,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -424,10 +500,16 @@ fun LibraryScreen(
                 isEmpty = visiblePlaylists.isEmpty(),
                 searchQuery = searchQuery,
                 layout = libraryLayout,
+                bannerMessage = importBannerMessage,
+                onDismissBanner = { importBannerMessage = null },
                 onOpenPlaylist = { selectedPlaylistId = it.id },
                 onSharePlaylist = onSharePlaylist,
                 onTogglePin = { onTogglePinPlaylist(it.id) },
-                onCreatePlaylist = { showCreatePlaylistDialog = true }
+                onCreatePlaylist = { showCreatePlaylistDialog = true },
+                onImportPlaylist = { showImportPlaylistDialog = true },
+                onBackupAllPlaylists = {
+                    backupAllPicker.launch("Spotifly_Playlists_Backup.json")
+                }
             )
 
             "Liked Songs" -> {
@@ -497,23 +579,36 @@ fun LibraryScreen(
             "Downloaded" -> {
                 val downloads = LibrarySorting.songs(visibleSongs(downloadedSongs), librarySort)
                 if (downloads.isEmpty()) {
-                    EmptyLibraryState(
-                        icon = {
-                            Icon(
-                                Icons.Default.DownloadDone,
-                                null,
-                                tint = SpotifyGreen,
-                                modifier = Modifier.size(52.dp)
-                            )
-                        },
-                        title = if (searchQuery.isBlank()) "No downloaded tracks yet" else "Nothing matches",
-                        subtitle = "Download any online song to listen completely offline without internet."
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        StorageDashboardShortcutBanner(
+                            subtitle = "Inspect artwork & temp cache allocations",
+                            onClick = onOpenStorageDashboard
+                        )
+                        EmptyLibraryState(
+                            icon = {
+                                Icon(
+                                    Icons.Default.DownloadDone,
+                                    null,
+                                    tint = SpotifyGreen,
+                                    modifier = Modifier.size(52.dp)
+                                )
+                            },
+                            title = if (searchQuery.isBlank()) "No downloaded tracks yet" else "Nothing matches",
+                            subtitle = "Download any online song to listen completely offline without internet."
+                        )
+                    }
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 120.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        item {
+                            StorageDashboardShortcutBanner(
+                                subtitle = "${downloads.size} offline tracks • Manage disk usage & caches",
+                                onClick = onOpenStorageDashboard
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
                         item { TrackCountLabel("${downloads.size} tracks saved for offline play") }
                         itemsIndexed(downloads, key = { _, song -> song.id }) { index, song ->
                             TrackItem(
@@ -676,6 +771,84 @@ fun LibraryScreen(
             containerColor = SpotifyElevated
         )
     }
+
+    if (showImportPlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportPlaylistDialog = false },
+            containerColor = SpotifyElevated,
+            title = { Text(text = "Import Playlist", color = SpotifyWhite, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Pick an .m3u, .m3u8, or Spotifly .json backup file, or paste track lines below:",
+                        color = SpotifyTextSecondary,
+                        fontSize = 12.sp
+                    )
+                    Button(
+                        onClick = {
+                            showImportPlaylistDialog = false
+                            importFilePicker.launch(arrayOf("*/*"))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Choose .m3u / .json File", color = SpotifyBlack, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedTextField(
+                        value = importNameInput,
+                        onValueChange = { importNameInput = it },
+                        label = { Text("Playlist name (optional)", color = SpotifyTextSecondary, fontSize = 12.sp) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = SpotifyWhite,
+                            unfocusedTextColor = SpotifyWhite,
+                            focusedBorderColor = SpotifyGreen,
+                            unfocusedBorderColor = SpotifyCard,
+                            focusedContainerColor = SpotifyCard,
+                            unfocusedContainerColor = SpotifyCard
+                        )
+                    )
+                    OutlinedTextField(
+                        value = importTextInput,
+                        onValueChange = { importTextInput = it },
+                        label = { Text("Paste M3U, JSON, or 'Artist - Song' lines", color = SpotifyTextSecondary, fontSize = 12.sp) },
+                        minLines = 3,
+                        maxLines = 5,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = SpotifyWhite,
+                            unfocusedTextColor = SpotifyWhite,
+                            focusedBorderColor = SpotifyGreen,
+                            unfocusedBorderColor = SpotifyCard,
+                            focusedContainerColor = SpotifyCard,
+                            unfocusedContainerColor = SpotifyCard
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = importTextInput.isNotBlank(),
+                    onClick = {
+                        val fallback = importNameInput.trim().ifEmpty { "Imported Mix" }
+                        onImportPlaylistsText(importTextInput, fallback) { msg ->
+                            importBannerMessage = msg
+                        }
+                        importNameInput = ""
+                        importTextInput = ""
+                        showImportPlaylistDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen)
+                ) {
+                    Text("Import Text", color = SpotifyBlack, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportPlaylistDialog = false }) {
+                    Text(text = "Cancel", color = SpotifyTextSecondary)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -685,14 +858,24 @@ private fun PlaylistsTab(
     isEmpty: Boolean,
     searchQuery: String,
     layout: LibraryLayout,
+    bannerMessage: String? = null,
+    onDismissBanner: () -> Unit = {},
     onOpenPlaylist: (Playlist) -> Unit,
     onSharePlaylist: (Playlist) -> Unit,
     onTogglePin: (Playlist) -> Unit,
-    onCreatePlaylist: () -> Unit
+    onCreatePlaylist: () -> Unit,
+    onImportPlaylist: () -> Unit = {},
+    onBackupAllPlaylists: () -> Unit = {}
 ) {
     if (isEmpty) {
         Column(modifier = Modifier.fillMaxSize()) {
-            CreatePlaylistCard(onCreatePlaylist)
+            PlaylistManagementActionsRow(
+                bannerMessage = bannerMessage,
+                onDismissBanner = onDismissBanner,
+                onCreatePlaylist = onCreatePlaylist,
+                onImportPlaylist = onImportPlaylist,
+                onBackupAllPlaylists = onBackupAllPlaylists
+            )
             EmptyLibraryMessage(
                 text = if (searchQuery.isBlank()) "No playlists created yet"
                 else "No playlists match \"$searchQuery\""
@@ -709,7 +892,15 @@ private fun PlaylistsTab(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            item(span = { GridItemSpan(maxLineSpan) }) { CreatePlaylistCard(onCreatePlaylist) }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                PlaylistManagementActionsRow(
+                    bannerMessage = bannerMessage,
+                    onDismissBanner = onDismissBanner,
+                    onCreatePlaylist = onCreatePlaylist,
+                    onImportPlaylist = onImportPlaylist,
+                    onBackupAllPlaylists = onBackupAllPlaylists
+                )
+            }
             if (pinned.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Pinned") }
                 gridItems(pinned, key = { "pinned_${it.id}" }) { playlist ->
@@ -728,7 +919,15 @@ private fun PlaylistsTab(
         contentPadding = PaddingValues(bottom = 120.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        item { CreatePlaylistCard(onCreatePlaylist) }
+        item {
+            PlaylistManagementActionsRow(
+                bannerMessage = bannerMessage,
+                onDismissBanner = onDismissBanner,
+                onCreatePlaylist = onCreatePlaylist,
+                onImportPlaylist = onImportPlaylist,
+                onBackupAllPlaylists = onBackupAllPlaylists
+            )
+        }
         if (pinned.isNotEmpty()) {
             item { SectionLabel("Pinned") }
             items(pinned, key = { "pinned_${it.id}" }) { playlist ->
@@ -741,6 +940,145 @@ private fun PlaylistsTab(
         items(rest, key = { it.id }) { playlist ->
             PlaylistRow(playlist, onOpenPlaylist, onSharePlaylist, onTogglePin, isPinned = false)
         }
+    }
+}
+
+@Composable
+private fun PlaylistManagementActionsRow(
+    bannerMessage: String?,
+    onDismissBanner: () -> Unit,
+    onCreatePlaylist: () -> Unit,
+    onImportPlaylist: () -> Unit,
+    onBackupAllPlaylists: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        CreatePlaylistCard(onCreatePlaylist)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Glassmorphism.darkGlassBrush)
+                    .border(0.8.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onImportPlaylist)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileUpload,
+                    contentDescription = null,
+                    tint = SpotifyGreenBright,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Import Playlist",
+                    color = SpotifyWhite,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Glassmorphism.darkGlassBrush)
+                    .border(0.8.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onBackupAllPlaylists)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileDownload,
+                    contentDescription = null,
+                    tint = SpotifyGreenBright,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Backup All",
+                    color = SpotifyWhite,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+        }
+        if (!bannerMessage.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Glassmorphism.accentGlassBrush(SpotifyGreen, 0.18f))
+                    .border(0.8.dp, Glassmorphism.accentGlassBorderBrush(SpotifyGreen), RoundedCornerShape(12.dp))
+                    .clickable(onClick = onDismissBanner)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = bannerMessage,
+                    color = SpotifyGreenBright,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(text = "OK", color = SpotifyWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StorageDashboardShortcutBanner(
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Glassmorphism.darkGlassBrush)
+            .border(1.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Storage,
+            contentDescription = null,
+            tint = SpotifyGreenBright,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Storage & Cache Dashboard",
+                color = SpotifyWhite,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = subtitle,
+                color = SpotifyTextSecondary,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = "Manage",
+            color = SpotifyGreenBright,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

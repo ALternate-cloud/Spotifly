@@ -78,6 +78,23 @@ class PlaylistRepository private constructor(private val context: Context) {
     }
     fun removeSongFromPlaylist(playlistId: String, songId: String) = updatePlaylist(playlistId) { it.copy(songs = it.songs.filterNot { song -> song.id == songId }) }
 
+    fun exportPlaylistM3u(playlist: Playlist): String = PlaylistBackupManager.exportM3u(playlist)
+
+    fun exportAllPlaylistsJson(): String = PlaylistBackupManager.exportJson(playlists.value)
+
+    fun exportPlaylistJson(playlist: Playlist): String = PlaylistBackupManager.exportJson(listOf(playlist))
+
+    fun importPlaylists(rawText: String, fallbackName: String, knownLibrary: List<Song>): List<Playlist> {
+        val parsed = PlaylistBackupManager.parseImportPayload(rawText, fallbackName, knownLibrary)
+        if (parsed.isEmpty()) return emptyList()
+        val created = mutableListOf<Playlist>()
+        for (item in parsed) {
+            store.createPlaylist(item)
+            created.add(item)
+        }
+        return created
+    }
+
     companion object {
         // Only applicationContext is retained by this process-wide singleton.
         @android.annotation.SuppressLint("StaticFieldLeak")

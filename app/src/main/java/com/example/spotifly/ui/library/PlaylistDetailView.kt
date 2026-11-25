@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.spotifly.data.catalog.LibrarySorting
 import com.example.spotifly.data.catalog.PlaylistTrackSort
+import com.example.spotifly.data.playlist.PlaylistBackupManager
 import com.example.spotifly.model.PlaybackState
 import com.example.spotifly.model.Playlist
 import com.example.spotifly.model.Song
@@ -91,21 +93,50 @@ fun PlaylistDetailView(
     onSetCover: (Uri) -> Unit = {},
     onRemoveCover: () -> Unit = {},
     onDownloadAll: () -> Unit = {},
+    onSaveExportUri: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
+    onShareExportFile: (filename: String, mimeType: String, content: String) -> Unit = { _, _, _ -> },
     hideExplicit: Boolean = false,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDescriptionDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     var draftName by remember { mutableStateOf(playlist.name) }
     var draftDescription by remember { mutableStateOf(playlist.description) }
     var songToRemove by remember { mutableStateOf<Song?>(null) }
     var songMenuIndex by remember { mutableStateOf<Int?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var trackSort by remember { mutableStateOf(PlaylistTrackSort.CUSTOM) }
+    var pendingExportText by remember { mutableStateOf<String?>(null) }
+    var exportStatusMessage by remember { mutableStateOf<String?>(null) }
 
     val coverPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri -> if (uri != null) onSetCover(uri) }
+
+    val saveM3uLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("audio/x-mpegurl")
+    ) { uri ->
+        val content = pendingExportText
+        pendingExportText = null
+        if (uri != null && content != null) {
+            onSaveExportUri(uri, content) { ok ->
+                exportStatusMessage = if (ok) "Saved .m3u8 playlist" else "Couldn't save file"
+            }
+        }
+    }
+
+    val saveJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val content = pendingExportText
+        pendingExportText = null
+        if (uri != null && content != null) {
+            onSaveExportUri(uri, content) { ok ->
+                exportStatusMessage = if (ok) "Saved JSON backup" else "Couldn't save backup"
+            }
+        }
+    }
 
     val visibleSongs = remember(playlist.songs, searchQuery, trackSort, hideExplicit) {
         LibrarySorting.playlistTracks(
@@ -138,6 +169,14 @@ fun PlaylistDetailView(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { exportStatusMessage = null; showExportDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.FileDownload,
+                        contentDescription = "Export playlist",
+                        tint = SpotifyTextSecondary
+                    )
+                }
+
                 IconButton(onClick = onSharePlaylist) {
                     Icon(
                         imageVector = Icons.Default.Share,
@@ -642,6 +681,50 @@ fun PlaylistDetailView(
                 }
             },
             containerColor = SpotifyElevated
+        )
+    }
+
+    if (showExportDialog) {
+        val safeBase = playlist.name.replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "playlist" }
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            containerColor = SpotifyElevated,
+            title = { Text(text = "Export '${playlist.name}'", color = SpotifyWhite, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Choose a portable format (.m3u8 for external players, .json for full lossless Spotifly backup).",
+                        color = SpotifyTextSecondary,
+                        fontSize = 13.sp
+                    )
+                    if (exportStatusMessage != null) {
+                        Text(text = exportStatusMessage!!, color = SpotifyGreen, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    TextButton(onClick = {
+                        pendingExportText = PlaylistBackupManager.exportM3u(playlist)
+                        saveM3uLauncher.launch("$safeBase.m3u8")
+                    }) {
+                        Text("Save as .m3u8 Playlist", color = SpotifyWhite)
+                    }
+                    TextButton(onClick = {
+                        pendingExportText = PlaylistBackupManager.exportJson(listOf(playlist))
+                        saveJsonLauncher.launch("$safeBase.json")
+                    }) {
+                        Text("Save as .json Backup", color = SpotifyWhite)
+                    }
+                    TextButton(onClick = {
+                        showExportDialog = false
+                        onShareExportFile("$safeBase.m3u8", "audio/x-mpegurl", PlaylistBackupManager.exportM3u(playlist))
+                    }) {
+                        Text("Share .m3u8 File…", color = SpotifyGreen)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text("Done", color = SpotifyGreen)
+                }
+            }
         )
     }
 }

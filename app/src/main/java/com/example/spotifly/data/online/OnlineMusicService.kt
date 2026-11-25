@@ -165,6 +165,22 @@ object OnlineMusicService {
             })
         }
 
+    internal suspend fun executeGet(url: String, saavnHeaders: Boolean = false): String? = withContext(Dispatchers.IO) {
+        val request = if (saavnHeaders) {
+            saavnRequest(url)
+        } else {
+            Request.Builder()
+                .url(url)
+                .header("User-Agent", "Spotifly-Android/2.0")
+                .build()
+        }
+        runCatching {
+            request.await().use { response ->
+                if (!response.isSuccessful) null else response.body?.string()?.takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
     /**
      * Search songs online using unified catalogue layer:
      * Searches Deezer, iTunes, and JioSaavn in parallel.
@@ -512,10 +528,10 @@ object OnlineMusicService {
         }
     }
 
-    private suspend fun searchITunes(query: String): List<Song> {
+    internal suspend fun searchITunes(query: String, country: String = "IN", limit: Int = 50): List<Song> {
         val results = mutableListOf<Song>()
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        val url = "https://itunes.apple.com/search?term=$encodedQuery&country=IN&media=music&entity=song&limit=50"
+        val url = "https://itunes.apple.com/search?term=$encodedQuery&country=$country&media=music&entity=song&limit=$limit"
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Spotifly-Android/2.0")
@@ -526,6 +542,7 @@ object OnlineMusicService {
             if (!it.isSuccessful) return emptyList()
 
             val jsonString = it.body?.string().orEmpty()
+            if (jsonString.isBlank()) return emptyList()
             val jsonObject = JSONObject(jsonString)
             val resultsArray = jsonObject.optJSONArray("results") ?: JSONArray()
 
@@ -535,7 +552,7 @@ object OnlineMusicService {
                 val trackName = unescapeHtml(item.optString("trackName", "Unknown Track"))
                 val artistName = unescapeHtml(item.optString("artistName", "Unknown Artist"))
                 val collectionName = unescapeHtml(item.optString("collectionName", ""))
-                val durationMs = item.optLong("trackTimeMillis", 180000L)
+                val durationMs = item.optLong("trackTimeMillis", 0L)
                 val durationSec = durationMs / 1000L
                 val rawArtwork = item.optString("artworkUrl100", "")
                 val artworkUrl = rawArtwork.replace("100x100bb.jpg", "600x600bb.jpg").ifEmpty { null }
@@ -575,7 +592,7 @@ object OnlineMusicService {
     // is unavailable, so the UI never dead-ends.
     // ---------------------------------------------------------------------
 
-    private fun saavnRequest(url: String): Request = Request.Builder()
+    internal fun saavnRequest(url: String): Request = Request.Builder()
         .url(url)
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .header("Referer", "https://www.jiosaavn.com/")
@@ -708,6 +725,30 @@ object OnlineMusicService {
 
     suspend fun getArtistSongs(artistId: String, fallbackName: String = ""): List<Song> =
         withContext(Dispatchers.IO) {
+            if (artistId.startsWith("deezer_artist_")) {
+                val deezerId = artistId.removePrefix("deezer_artist_")
+                val targetName = fallbackName.ifBlank { deezerId }
+                return@withContext coroutineScope {
+                    val deezerTop = async { DiscoveryService.getDeezerArtistTopTracks(deezerId) }
+                    val saavnHits = async { runCatching { searchJioSaavnEnhanced(targetName) }.getOrDefault(emptyList()) }
+                    val merged = mutableListOf<Song>()
+                    fun addOrMerge(track: Song) {
+                        val idx = merged.indexOfFirst { TrackMatching.isSameRecording(it, track) }
+                        if (idx >= 0) merged[idx] = TrackMatching.mergeTracks(merged[idx], track)
+                        else merged.add(track)
+                    }
+                    saavnHits.await()
+                        .filter { song ->
+                            val normArtist = TrackMatching.normalizeArtist(targetName)
+                            normArtist.isBlank() || TrackMatching.normalizeArtist(song.artist).contains(normArtist) ||
+                                song.artists.any { TrackMatching.normalizeArtist(it) == normArtist }
+                        }
+                        .forEach(::addOrMerge)
+                    deezerTop.await().forEach(::addOrMerge)
+                    merged.ifEmpty { deezerTop.await() }
+                }
+            }
+
             val numericId = artistId.removePrefix("saavn_artist_")
             if (artistId.startsWith("saavn_artist_")) {
                 runCatching {
@@ -798,27 +839,32 @@ object OnlineMusicService {
             response.use {
                 if (it.isSuccessful) {
                     val body = it.body?.string().orEmpty()
-                    val json = JSONObject(body)
-                    val syncedLrc = json.optString("syncedLyrics", "")
-                    val plainText = json.optString("plainLyrics", "")
-
-                    if (syncedLrc.isNotBlank()) {
-                        val lines = Lyrics.parseLrc(syncedLrc)
-                        fetched = Lyrics(
-                            trackName = song.title,
-                            artistName = song.artist,
-                            lines = lines,
-                            plainLyrics = plainText.ifEmpty { null },
-                            isSynced = lines.isNotEmpty()
-                        )
-                    } else if (plainText.isNotBlank()) {
-                        fetched = Lyrics(
-                            trackName = song.title,
-                            artistName = song.artist,
-                            lines = emptyList(),
-                            plainLyrics = plainText,
-                            isSynced = false
-                        )
+                    if (body.isNotBlank()) {
+                        fetched = parseLrclibRecord(song, JSONObject(body))
+                    }
+                }
+            }
+            if (fetched == null) {
+                val searchUrl = "https://lrclib.net/api/search?track_name=$encodedTitle&artist_name=$encodedArtist"
+                val searchReq = Request.Builder()
+                    .url(searchUrl)
+                    .header("User-Agent", "Spotifly-Android/2.0 (https://github.com/example/spotifly)")
+                    .build()
+                searchReq.await().use { res ->
+                    if (res.isSuccessful) {
+                        val body = res.body?.string().orEmpty()
+                        if (body.isNotBlank()) {
+                            val arr = JSONArray(body)
+                            for (i in 0 until arr.length()) {
+                                val candidate = parseLrclibRecord(song, arr.getJSONObject(i)) ?: continue
+                                if (candidate.isSynced) {
+                                    fetched = candidate
+                                    break
+                                } else if (fetched == null) {
+                                    fetched = candidate
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -831,5 +877,29 @@ object OnlineMusicService {
 
         synchronized(lyricsCacheLock) { lyricsCache[cacheKey] = result }
         result
+    }
+
+    private fun parseLrclibRecord(song: Song, json: JSONObject): Lyrics? {
+        val syncedLrc = json.optString("syncedLyrics", "").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+        val plainText = json.optString("plainLyrics", "").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+        if (syncedLrc.isNotBlank()) {
+            val lines = Lyrics.parseLrc(syncedLrc)
+            return Lyrics(
+                trackName = song.title,
+                artistName = song.artist,
+                lines = lines,
+                plainLyrics = plainText.ifEmpty { null },
+                isSynced = lines.isNotEmpty()
+            )
+        } else if (plainText.isNotBlank()) {
+            return Lyrics(
+                trackName = song.title,
+                artistName = song.artist,
+                lines = emptyList(),
+                plainLyrics = plainText,
+                isSynced = false
+            )
+        }
+        return null
     }
 }

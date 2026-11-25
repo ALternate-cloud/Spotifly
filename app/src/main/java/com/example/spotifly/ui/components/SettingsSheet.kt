@@ -78,6 +78,8 @@ fun SettingsSheet(
     onOpenAudioSettings: () -> Unit = {},
     onOpenStats: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    onOpenDiscover: () -> Unit = {},
+    onOpenStorageDashboard: () -> Unit = {},
     themeMode: ThemeMode = ThemeMode.DARK,
     onThemeModeSelected: (ThemeMode) -> Unit = {},
     hideExplicit: Boolean = false,
@@ -398,12 +400,13 @@ fun SettingsSheet(
             onDismiss()
         }
 
-        // Storage readout
+        // Storage readout & Granular Storage Dashboard entry
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(SpotifyDarkGray)
+                .clickable(onClick = onOpenStorageDashboard)
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -414,19 +417,25 @@ fun SettingsSheet(
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Offline storage",
+                    text = "Storage & Cache Dashboard",
                     color = SpotifyWhite,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "$downloadedCount downloaded track${if (downloadedCount == 1) "" else "s"} • ${formatBytes(downloadedBytes)}",
+                    text = "$downloadedCount downloaded • ${formatBytes(downloadedBytes)} + ${formatBytes(cacheBytes)} cache",
                     color = SpotifyTextSecondary,
                     fontSize = 12.sp
                 )
             }
+            Text(
+                text = "Manage",
+                color = SpotifyGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
 
         SettingsRow(
@@ -446,6 +455,17 @@ fun SettingsSheet(
             subtitle = "Audio sources, local data, clean-room notes"
         ) {
             onOpenAbout()
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // Discover Experience (Screen A from Reference Concept)
+        SettingsRow(
+            icon = Icons.Default.GraphicEq,
+            title = "Discover & Onboarding Experience",
+            subtitle = "Explore the cinematic music discovery screen"
+        ) {
+            onOpenDiscover()
         }
     }
 }

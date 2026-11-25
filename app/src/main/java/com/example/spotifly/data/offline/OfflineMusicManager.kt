@@ -216,6 +216,19 @@ class OfflineMusicManager private constructor(private val context: Context) {
         }
     }
 
+    fun clearAllDownloads() {
+        val currentIds = _downloadedSongs.value.map { it.id } + activeJobs.keys.toList()
+        currentIds.distinct().forEach { cancelDownload(it) }
+        scope.launch {
+            offlineDir.listFiles()?.forEach { file ->
+                runCatching { file.delete() }
+            }
+            _downloadedSongs.value = emptyList()
+            _downloadStatus.value = emptyMap()
+            _downloadProgress.value = emptyMap()
+        }
+    }
+
     private fun cleanFileName(id: String): String {
         return id.replace(Regex("[^a-zA-Z0-9_]"), "_")
     }

@@ -47,11 +47,23 @@ class UserPreferencesManager private constructor(context: Context) {
 
     // ---- Simple settings ----
 
-    private val _accentName = MutableStateFlow(prefs.getString(KEY_ACCENT, AccentThemes.first().name) ?: AccentThemes.first().name)
+    private val _accentName = MutableStateFlow(
+        prefs.getString(KEY_ACCENT_V2, null)
+            ?: prefs.getString(KEY_ACCENT, AccentThemes.first().name)
+            ?: AccentThemes.first().name
+    )
     val accentName: StateFlow<String> = _accentName.asStateFlow()
 
     val accent: AccentTheme
         get() = AccentThemes.find { it.name == _accentName.value } ?: AccentThemes.first()
+
+    private val _hasSeenOnboarding = MutableStateFlow(prefs.getBoolean(KEY_ONBOARDING, false))
+    val hasSeenOnboarding: StateFlow<Boolean> = _hasSeenOnboarding.asStateFlow()
+
+    fun setHasSeenOnboarding(seen: Boolean) {
+        _hasSeenOnboarding.value = seen
+        prefs.edit { putBoolean(KEY_ONBOARDING, seen) }
+    }
 
     private val _autoplayEnabled = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY, true))
     val autoplayEnabled: StateFlow<Boolean> = _autoplayEnabled.asStateFlow()
@@ -70,7 +82,10 @@ class UserPreferencesManager private constructor(context: Context) {
 
     fun setAccent(name: String) {
         _accentName.value = name
-        prefs.edit { putString(KEY_ACCENT, name) }
+        prefs.edit {
+            putString(KEY_ACCENT, name)
+            putString(KEY_ACCENT_V2, name)
+        }
     }
 
     fun setAutoplay(enabled: Boolean) {
@@ -332,6 +347,8 @@ class UserPreferencesManager private constructor(context: Context) {
     companion object {
         private const val PREFS_NAME = "spotifly_user_prefs"
         private const val KEY_ACCENT = "accent_name"
+        private const val KEY_ACCENT_V2 = "accent_name_v2"
+        private const val KEY_ONBOARDING = "has_seen_onboarding"
         private const val KEY_AUTOPLAY = "autoplay_enabled"
         private const val KEY_SPEED = "playback_speed"
         private const val KEY_SHUFFLE = "shuffle_enabled"

@@ -2,8 +2,10 @@
 
 package com.example.spotifly.service
 
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import androidx.core.app.ServiceCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -13,6 +15,7 @@ import androidx.media3.session.MediaSessionService
 import com.example.spotifly.MainActivity
 import com.example.spotifly.player.AudioEffectsManager
 import com.example.spotifly.player.MonoRenderersFactory
+import com.example.spotifly.player.MusicController
 import com.example.spotifly.player.PlaybackTuning
 
 class MusicPlaybackService : MediaSessionService() {
@@ -75,12 +78,67 @@ class MusicPlaybackService : MediaSessionService() {
         return mediaSession
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val session = mediaSession
+        val activePlayer = session?.player
+        val keepAlive = activePlayer != null && shouldKeepServiceOnTaskRemoved(
+            playWhenReady = activePlayer.playWhenReady,
+            playbackState = activePlayer.playbackState,
+            mediaItemCount = activePlayer.mediaItemCount
+        )
+        if (keepAlive) {
+            super.onTaskRemoved(rootIntent)
+            return
+        }
+
+        // Stop playback & clear media items first so Android SystemUI / OEM media
+        // panels drop the paused control instead of pinning a phantom notification.
+        runCatching {
+            activePlayer?.playWhenReady = false
+            activePlayer?.stop()
+            activePlayer?.clearMediaItems()
+        }
+        runCatching {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            getSystemService(NotificationManager::class.java)?.cancelAll()
+        }
+        MusicController.releaseBindingIfPaused()
+        mediaSession?.run {
+            player.release()
+            release()
+            mediaSession = null
+        }
+        stopSelf()
+    }
+
     override fun onDestroy() {
+        runCatching {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            getSystemService(NotificationManager::class.java)?.cancelAll()
+        }
         mediaSession?.run {
             player.release()
             release()
             mediaSession = null
         }
         super.onDestroy()
+    }
+
+    companion object {
+        /**
+         * Keep the service running after task removal only when audio is actively
+         * playing (or buffering to play); paused/idle/ended sessions must tear down
+         * their notification so OEM ROMs do not leave a stuck media card behind.
+         */
+        fun shouldKeepServiceOnTaskRemoved(
+            playWhenReady: Boolean,
+            playbackState: Int,
+            mediaItemCount: Int
+        ): Boolean {
+            return playWhenReady &&
+                mediaItemCount > 0 &&
+                playbackState != Player.STATE_IDLE &&
+                playbackState != Player.STATE_ENDED
+        }
     }
 }

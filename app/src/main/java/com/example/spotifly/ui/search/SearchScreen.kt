@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
@@ -69,6 +70,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.spotifly.data.catalog.LibraryGrouping
 import com.example.spotifly.data.catalog.SearchSuggestions
+import com.example.spotifly.data.online.DiscoveryService
+import com.example.spotifly.data.online.LyricSearchMatch
 import com.example.spotifly.data.online.OnlineMusicService
 import com.example.spotifly.model.Album
 import com.example.spotifly.model.Artist
@@ -80,8 +83,15 @@ import com.example.spotifly.theme.SpotifyBackground
 import com.example.spotifly.theme.SpotifyCard
 import com.example.spotifly.theme.SpotifyElevated
 import com.example.spotifly.theme.SpotifyGreen
+import com.example.spotifly.theme.SpotifyGreenBright
 import com.example.spotifly.theme.SpotifyTextSecondary
 import com.example.spotifly.theme.SpotifyWhite
+import com.example.spotifly.theme.Glassmorphism
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import com.example.spotifly.ui.components.TrackItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -108,7 +118,7 @@ private val categories = listOf(
     BrowseCategory("Focus", Color(0xFF455A64))
 )
 
-private val filters = listOf("All", "Songs", "Albums", "Artists", "Playlists", "Device")
+private val filters = listOf("All", "Songs", "Lyrics", "Albums", "Artists", "Playlists", "Device")
 
 @Composable
 fun SearchScreen(
@@ -138,54 +148,94 @@ fun SearchScreen(
     var trackResults by remember { mutableStateOf<List<Song>>(emptyList()) }
     var albumResults by remember { mutableStateOf<List<Album>>(emptyList()) }
     var artistResults by remember { mutableStateOf<List<Artist>>(emptyList()) }
+    var lyricResults by remember { mutableStateOf<List<LyricSearchMatch>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
+    var isSearchingLyrics by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var searchJob by remember { mutableStateOf<Job?>(null) }
 
-    fun performSearch(query: String) {
+    fun performSearch(query: String, activeFilter: String = selectedFilter) {
         searchJob?.cancel()
         if (query.isBlank()) {
             trackResults = emptyList()
             albumResults = emptyList()
             artistResults = emptyList()
+            lyricResults = emptyList()
             isSearching = false
+            isSearchingLyrics = false
             return
         }
 
         searchJob = coroutineScope.launch {
             isSearching = true
+            val isMultiWord = query.trim().split(Regex("\\s+")).size >= 4
+            val shouldSearchLyrics = !offlineMode && (activeFilter == "Lyrics" || (activeFilter == "All" && isMultiWord))
+            isSearchingLyrics = shouldSearchLyrics
             delay(350) // Debounce typing
 
             val matchingLocal = localSongs.filter { LibraryGrouping.matches(it, query) }
             // Offline mode must not touch the network, so the catalogue legs are
             // skipped entirely and only downloaded/device tracks are searched.
-            val (onlineTracks, onlineAlbums, onlineArtists) = if (offlineMode) {
-                Triple(emptyList<Song>(), emptyList<Album>(), emptyList<Artist>())
-            } else {
-                coroutineScope {
-                    val tracks = async {
-                        val songs = OnlineMusicService.searchSongs(query) { partial ->
-                            withContext(Dispatchers.Main) {
-                                trackResults = (matchingLocal + partial).distinctBy { it.id }
-                                isSearching = false
-                            }
-                        }
-                        trackResults = (matchingLocal + songs).distinctBy { it.id }
-                        isSearching = false
-                        songs
-                    }
-                    val albums = async { runCatching { OnlineMusicService.searchAlbums(query) }.getOrDefault(emptyList()) }
-                    val artists = async { runCatching { OnlineMusicService.searchArtists(query) }.getOrDefault(emptyList()) }
-                    Triple(tracks.await(), albums.await(), artists.await())
-                }
+            if (offlineMode) {
+                trackResults = matchingLocal.distinctBy { it.id }
+                albumResults = LibraryGrouping.albums(matchingLocal).distinctBy { it.id }
+                artistResults = LibraryGrouping.artists(matchingLocal).distinctBy { it.id }
+                lyricResults = emptyList()
+                isSearching = false
+                isSearchingLyrics = false
+                return@launch
             }
 
-            trackResults = (matchingLocal + onlineTracks).distinctBy { it.id }
-            albumResults = (LibraryGrouping.albums(matchingLocal) + onlineAlbums).distinctBy { it.id }
-            artistResults = (LibraryGrouping.artists(matchingLocal) + onlineArtists).distinctBy { it.id }
+            if (activeFilter == "Lyrics") {
+                val matches = runCatching { DiscoveryService.searchByLyrics(query) }.getOrDefault(emptyList())
+                lyricResults = matches
+                if (matches.isNotEmpty()) {
+                    trackResults = matches.map { it.song }
+                }
+                isSearchingLyrics = false
+                isSearching = false
+                return@launch
+            }
+
+            val (onlineTracks, onlineAlbums, onlineArtists, onlineLyrics) = coroutineScope {
+                val tracks = async {
+                    val songs = OnlineMusicService.searchSongs(query) { partial ->
+                        withContext(Dispatchers.Main) {
+                            trackResults = (matchingLocal + partial).distinctBy { it.id }
+                            isSearching = false
+                        }
+                    }
+                    trackResults = (matchingLocal + songs).distinctBy { it.id }
+                    isSearching = false
+                    songs
+                }
+                val albums = async { runCatching { OnlineMusicService.searchAlbums(query) }.getOrDefault(emptyList()) }
+                val artists = async { runCatching { OnlineMusicService.searchArtists(query) }.getOrDefault(emptyList()) }
+                val lyrics = async {
+                    if (shouldSearchLyrics) {
+                        runCatching { DiscoveryService.searchByLyrics(query) }.getOrDefault(emptyList())
+                    } else emptyList()
+                }
+                val t = tracks.await()
+                val a = albums.await()
+                val ar = artists.await()
+                val l = lyrics.await()
+                isSearchingLyrics = false
+                listOf(t, a, ar, l)
+            }
+
+            @Suppress("UNCHECKED_CAST")
+            trackResults = (matchingLocal + (onlineTracks as List<Song>)).distinctBy { it.id }
+            @Suppress("UNCHECKED_CAST")
+            albumResults = (LibraryGrouping.albums(matchingLocal) + (onlineAlbums as List<Album>)).distinctBy { it.id }
+            @Suppress("UNCHECKED_CAST")
+            artistResults = (LibraryGrouping.artists(matchingLocal) + (onlineArtists as List<Artist>)).distinctBy { it.id }
+            @Suppress("UNCHECKED_CAST")
+            lyricResults = onlineLyrics as List<LyricSearchMatch>
             isSearching = false
+            isSearchingLyrics = false
         }
     }
 
@@ -268,7 +318,7 @@ fun SearchScreen(
             },
             placeholder = {
                 Text(
-                    text = "What do you want to listen to?",
+                    text = if (selectedFilter == "Lyrics") "Type any remembered lyric phrase…" else "Songs, artists, or remembered lyrics",
                     color = SpotifyTextSecondary,
                     fontSize = 14.sp
                 )
@@ -296,6 +346,7 @@ fun SearchScreen(
                             trackResults = emptyList()
                             albumResults = emptyList()
                             artistResults = emptyList()
+                            lyricResults = emptyList()
                         }) {
                             Icon(
                                 imageVector = Icons.Default.Clear,
@@ -315,16 +366,19 @@ fun SearchScreen(
                     }
                 }
             ),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = SpotifyCard,
-                unfocusedContainerColor = SpotifyCard,
+                focusedContainerColor = Color(0x28FFFFFF),
+                unfocusedContainerColor = Color(0x18FFFFFF),
                 focusedBorderColor = SpotifyGreen,
-                unfocusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color(0x25FFFFFF),
                 focusedTextColor = SpotifyWhite,
                 unfocusedTextColor = SpotifyWhite
             ),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(12.dp, RoundedCornerShape(16.dp), ambientColor = Color.Black)
+                .border(1.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(16.dp))
         )
 
         if (suggestions.isNotEmpty()) {
@@ -339,7 +393,8 @@ fun SearchScreen(
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .background(SpotifyCard)
+                            .background(Glassmorphism.subtleGlassFill)
+                            .border(1.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(16.dp))
                             .clickable {
                                 searchQuery = suggestion
                                 onAddSearchQuery(suggestion)
@@ -368,6 +423,7 @@ fun SearchScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // Frosted Glass Category Filter Chips
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -376,24 +432,32 @@ fun SearchScreen(
         ) {
             filters.forEach { filter ->
                 val isSelected = selectedFilter == filter
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { selectedFilter = filter },
-                    label = {
-                        Text(
-                            text = filter,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                Box(
+                    modifier = Modifier
+                        .shadow(if (isSelected) 8.dp else 2.dp, RoundedCornerShape(20.dp), ambientColor = if (isSelected) SpotifyGreen else Color.Transparent)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isSelected) Glassmorphism.accentGlassBrush(SpotifyGreen) else Glassmorphism.subtleGlassFill)
+                        .border(
+                            1.2.dp,
+                            if (isSelected) Glassmorphism.accentGlassBorderBrush(SpotifyGreen) else Glassmorphism.specularBorderBrush,
+                            RoundedCornerShape(20.dp)
                         )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = SpotifyGreen,
-                        selectedLabelColor = SpotifyBlack,
-                        containerColor = SpotifyCard,
-                        labelColor = SpotifyWhite
-                    ),
-                    border = null
-                )
+                        .clickable {
+                            selectedFilter = filter
+                            if (filter == "Lyrics" && searchQuery.isNotBlank() && lyricResults.isEmpty()) {
+                                performSearch(searchQuery, "Lyrics")
+                            }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = filter,
+                        color = if (isSelected) SpotifyGreenBright else SpotifyWhite,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
             }
         }
 
@@ -434,16 +498,33 @@ fun SearchScreen(
                 },
                 onRemoveSearchQuery = onRemoveSearchQuery,
                 onClearSearchHistory = onClearSearchHistory,
-                onOpenPodcasts = onOpenPodcasts
+                onOpenPodcasts = onOpenPodcasts,
+                onTryLyricSearch = { samplePhrase ->
+                    selectedFilter = "Lyrics"
+                    searchQuery = samplePhrase
+                    performSearch(samplePhrase, "Lyrics")
+                }
             )
-        } else if (isSearching && trackResults.isEmpty() && albumResults.isEmpty() && artistResults.isEmpty()) {
+        } else if ((isSearching || (selectedFilter == "Lyrics" && isSearchingLyrics)) &&
+            trackResults.isEmpty() && albumResults.isEmpty() && artistResults.isEmpty() && lyricResults.isEmpty()
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = 120.dp),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = SpotifyGreen)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = SpotifyGreen)
+                    if (selectedFilter == "Lyrics") {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Matching lyric lines…",
+                            color = SpotifyTextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
             }
         } else {
             SearchResultsContent(
@@ -453,6 +534,8 @@ fun SearchScreen(
                 albums = albumResults,
                 artists = artistResults,
                 playlists = matchingPlaylists,
+                lyricMatches = lyricResults,
+                isSearchingLyrics = isSearchingLyrics,
                 playbackState = playbackState,
                 favorites = favorites,
                 downloadStatus = downloadStatus,
@@ -486,7 +569,8 @@ private fun IdleSearchContent(
     onQueryClick: (String) -> Unit,
     onRemoveSearchQuery: (String) -> Unit,
     onClearSearchHistory: () -> Unit,
-    onOpenPodcasts: () -> Unit = {}
+    onOpenPodcasts: () -> Unit = {},
+    onTryLyricSearch: (String) -> Unit = {}
 ) {
     LazyColumn(
         contentPadding = PaddingValues(bottom = 120.dp),
@@ -521,9 +605,13 @@ private fun IdleSearchContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
+                        .padding(vertical = 4.dp)
+                        .shadow(4.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0x1AFFFFFF))
+                        .border(1.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(14.dp))
                         .clickable { onQueryClick(query) }
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                        .padding(vertical = 10.dp, horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -574,16 +662,25 @@ private fun IdleSearchContent(
             )
         }
 
-        // Spoken audio lives beside music but plays by its own rules (resume, 15/30s
-        // skips), so it gets a dedicated entry instead of a genre tile.
+        // Podcasts Frosted Glass Banner
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF1E3264))
+                    .shadow(16.dp, RoundedCornerShape(16.dp), ambientColor = Color.Black)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xE01E3264),
+                                Color(0xAA122045),
+                                Color(0xD00A1428)
+                            )
+                        )
+                    )
+                    .border(1.2.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(16.dp))
                     .clickable { onOpenPodcasts() }
-                    .padding(14.dp),
+                    .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -607,9 +704,47 @@ private fun IdleSearchContent(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
         }
 
+        // Search by Lyrics Frosted Glass Discovery Card
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(16.dp, RoundedCornerShape(16.dp), ambientColor = Color.Black)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Glassmorphism.accentGlassBrush(SpotifyGreen, 0.22f))
+                    .border(1.2.dp, Glassmorphism.accentGlassBorderBrush(SpotifyGreen), RoundedCornerShape(16.dp))
+                    .clickable { onTryLyricSearch("I'm working late cause I'm a singer") }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FormatQuote,
+                    contentDescription = null,
+                    tint = SpotifyGreenBright,
+                    modifier = Modifier.size(26.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Search by Lyrics",
+                        color = SpotifyWhite,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Find songs by typing any memorable lyric phrase",
+                        color = SpotifyWhite.copy(alpha = 0.78f),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        // Browse All Frosted Glass Categories
         items(categories.chunked(2)) { rowCategories ->
             Row(
                 modifier = Modifier
@@ -621,12 +756,34 @@ private fun IdleSearchContent(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(84.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(category.color)
+                            .height(88.dp)
+                            .shadow(12.dp, RoundedCornerShape(16.dp), ambientColor = category.color.copy(alpha = 0.35f))
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        category.color.copy(alpha = 0.90f),
+                                        category.color.copy(alpha = 0.50f),
+                                        Color(0x3514141E)
+                                    )
+                                )
+                            )
+                            .border(1.2.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(16.dp))
                             .clickable { onQueryClick(category.title) }
-                            .padding(12.dp)
+                            .padding(14.dp)
                     ) {
+                        // Glass diagonal sheen
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color(0x30FFFFFF), Color.Transparent),
+                                        start = Offset(0f, 0f),
+                                        end = Offset(140f, 140f)
+                                    )
+                                )
+                        )
                         Text(
                             text = category.title,
                             color = SpotifyWhite,
@@ -651,6 +808,8 @@ private fun SearchResultsContent(
     albums: List<Album>,
     artists: List<Artist>,
     playlists: List<Playlist>,
+    lyricMatches: List<LyricSearchMatch> = emptyList(),
+    isSearchingLyrics: Boolean = false,
     playbackState: PlaybackState,
     favorites: Set<String>,
     downloadStatus: Map<String, DownloadStatus>,
@@ -664,17 +823,44 @@ private fun SearchResultsContent(
     onPlayPlaylist: (Playlist) -> Unit,
     onSuggestionClick: (String) -> Unit
 ) {
+    val isLyricsMode = filter == "Lyrics"
     val visibleTracks = when (filter) {
-        "Albums", "Artists", "Playlists" -> emptyList()
+        "Lyrics", "Albums", "Artists", "Playlists" -> emptyList()
         "Device" -> tracks.filter { it.isLocal }
         else -> tracks
     }
+    val visibleLyricMatches = if (isLyricsMode) {
+        lyricMatches
+    } else if (filter == "All") {
+        lyricMatches.filter { !it.matchedSnippet.isNullOrBlank() }.take(3)
+    } else emptyList()
+
     val visibleAlbums = if (filter == "All" || filter == "Albums") albums else emptyList()
     val visibleArtists = if (filter == "All" || filter == "Artists") artists else emptyList()
     val visiblePlaylists = if (filter == "All" || filter == "Playlists") playlists else emptyList()
 
-    val hasAnything = visibleTracks.isNotEmpty() || visibleAlbums.isNotEmpty() ||
-        visibleArtists.isNotEmpty() || visiblePlaylists.isNotEmpty()
+    val hasAnything = visibleTracks.isNotEmpty() || visibleLyricMatches.isNotEmpty() ||
+        visibleAlbums.isNotEmpty() || visibleArtists.isNotEmpty() || visiblePlaylists.isNotEmpty()
+
+    if (!hasAnything && isLyricsMode && isSearchingLyrics) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 120.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = SpotifyGreen)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Matching lyric lines…",
+                    color = SpotifyTextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+        }
+        return
+    }
 
     if (!hasAnything) {
         LazyColumn(
@@ -763,6 +949,28 @@ private fun SearchResultsContent(
             }
         }
 
+        if (visibleLyricMatches.isNotEmpty()) {
+            item {
+                SectionHeader(if (isLyricsMode) "Songs matching lyrics" else "Lyric matches")
+            }
+            itemsIndexed(
+                visibleLyricMatches,
+                key = { idx, m -> "lyric_${m.song.id}_$idx" }
+            ) { _, match ->
+                LyricMatchCard(
+                    match = match,
+                    isPlaying = playbackState.currentSong?.id == match.song.id,
+                    isFavorite = favorites.contains(match.song.id),
+                    isDownloaded = downloadStatus[match.song.id] == DownloadStatus.DOWNLOADED || match.song.isDownloaded,
+                    isDownloading = downloadStatus[match.song.id] == DownloadStatus.DOWNLOADING,
+                    onClick = { onSongClick(match.song) },
+                    onFavoriteClick = { onFavoriteClick(match.song) },
+                    onMoreClick = { onTrackMoreClick?.invoke(match.song) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+
         if (visibleTracks.isNotEmpty()) {
             item {
                 SectionHeader(if (filter == "Device") "On this device" else "Songs")
@@ -822,6 +1030,62 @@ private fun SearchResultsContent(
                     onClick = { onPlayPlaylist(playlist) }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun LyricMatchCard(
+    match: LyricSearchMatch,
+    isPlaying: Boolean,
+    isFavorite: Boolean,
+    isDownloaded: Boolean,
+    isDownloading: Boolean,
+    onClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
+    onMoreClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Glassmorphism.darkGlassBrush)
+            .border(1.dp, Glassmorphism.accentGlassBorderBrush(SpotifyGreen), RoundedCornerShape(14.dp))
+    ) {
+        TrackItem(
+            song = match.song,
+            isPlaying = isPlaying,
+            isFavorite = isFavorite,
+            isDownloaded = isDownloaded,
+            isDownloading = isDownloading,
+            onClick = onClick,
+            onFavoriteClick = onFavoriteClick,
+            onMoreClick = onMoreClick
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.FormatQuote,
+                contentDescription = null,
+                tint = SpotifyGreenBright,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = if (!match.matchedSnippet.isNullOrBlank()) {
+                    "“${match.matchedSnippet}”"
+                } else {
+                    "Matched via lyric catalog index"
+                },
+                color = if (!match.matchedSnippet.isNullOrBlank()) SpotifyGreenBright else SpotifyTextSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

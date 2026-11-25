@@ -9,6 +9,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.shadow
+import com.example.spotifly.theme.Glassmorphism
+import com.example.spotifly.theme.SpotifyGreenBright
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.spotifly.data.deeplink.DeepLinkTarget
+import com.example.spotifly.data.online.ChartFeed
 import com.example.spotifly.model.DownloadStatus
 import com.example.spotifly.model.Song
 import com.example.spotifly.theme.SpotifyBackground
@@ -60,10 +66,12 @@ import com.example.spotifly.theme.SpotifyWhite
 import com.example.spotifly.ui.album.AlbumDetailScreen
 import com.example.spotifly.ui.artist.ArtistDetailScreen
 import com.example.spotifly.ui.components.AddToPlaylistModal
+import com.example.spotifly.ui.components.ChartDetailSheet
 import com.example.spotifly.ui.components.FullPlayerModal
 import com.example.spotifly.ui.components.MiniPlayer
 import com.example.spotifly.ui.components.QueueBottomSheet
 import com.example.spotifly.ui.components.SettingsSheet
+import com.example.spotifly.ui.components.ShareCardModal
 import com.example.spotifly.ui.components.ShareUtils
 import com.example.spotifly.ui.components.TrackOptionsBottomSheet
 import com.example.spotifly.ui.home.HomeScreen
@@ -72,7 +80,9 @@ import com.example.spotifly.ui.podcast.PodcastsScreen
 import com.example.spotifly.ui.search.SearchScreen
 import com.example.spotifly.ui.settings.AboutScreen
 import com.example.spotifly.ui.settings.AudioSettingsScreen
+import com.example.spotifly.ui.settings.StorageDashboardScreen
 import com.example.spotifly.ui.stats.StatsScreen
+import com.example.spotifly.ui.onboarding.DiscoverOnboardingScreen
 import kotlinx.coroutines.launch
 
 enum class MainTab {
@@ -86,8 +96,10 @@ private enum class DetailRoute {
     NONE,
     STATS,
     AUDIO_SETTINGS,
+    STORAGE_DASHBOARD,
     PODCASTS,
-    ABOUT
+    ABOUT,
+    DISCOVER
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,6 +108,7 @@ fun MainScreen(
     modifier: Modifier = Modifier,
     deepLink: DeepLinkTarget? = null,
     onDeepLinkConsumed: () -> Unit = {},
+    onOpenDiscover: () -> Unit = {},
     viewModel: MainScreenViewModel = viewModel()
 ) {
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
@@ -106,6 +119,8 @@ fun MainScreen(
 
     var selectedTrackForOptions by remember { mutableStateOf<Song?>(null) }
     var selectedTrackForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var trackForStoryShare by remember { mutableStateOf<Song?>(null) }
+    var selectedChartForSheet by remember { mutableStateOf<ChartFeed?>(null) }
     var queueToSave by remember { mutableStateOf<List<Song>?>(null) }
     var queuePlaylistName by remember { mutableStateOf("") }
     // Deep links that need a screen which owns its own selection state.
@@ -146,10 +161,15 @@ fun MainScreen(
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val openAlbum by viewModel.openAlbum.collectAsStateWithLifecycle()
     val openArtist by viewModel.openArtist.collectAsStateWithLifecycle()
+    val relatedArtists by viewModel.relatedArtists.collectAsStateWithLifecycle()
+    val isLoadingRelatedArtists by viewModel.isLoadingRelatedArtists.collectAsStateWithLifecycle()
+    val chartFeeds by viewModel.chartFeeds.collectAsStateWithLifecycle()
+    val isLoadingCharts by viewModel.isLoadingCharts.collectAsStateWithLifecycle()
+    val storageBreakdown by viewModel.storageBreakdown.collectAsStateWithLifecycle()
+    val isLoadingStorage by viewModel.isLoadingStorage.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val queueSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val settingsSheetState = rememberModalBottomSheetState()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -235,93 +255,103 @@ fun MainScreen(
         modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
-            NavigationBar(
-                containerColor = SpotifyBackground.copy(alpha = 0.98f),
-                tonalElevation = 0.dp
-            ) {
-                NavigationBarItem(
-                    selected = currentTab == MainTab.HOME && detailRoute == DetailRoute.NONE,
-                    onClick = {
-                        currentTab = MainTab.HOME
-                        detailRoute = DetailRoute.NONE
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == MainTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
-                            contentDescription = "Home"
+            if (detailRoute != DetailRoute.DISCOVER) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(16.dp, ambientColor = Color.Black)
+                        .background(Color(0xF00A0A10))
+                        .border(BorderStroke(0.8.dp, Glassmorphism.specularBorderBrush))
+                ) {
+                    NavigationBar(
+                        containerColor = Color.Transparent,
+                        tonalElevation = 0.dp
+                    ) {
+                        NavigationBarItem(
+                            selected = currentTab == MainTab.HOME && detailRoute == DetailRoute.NONE,
+                            onClick = {
+                                currentTab = MainTab.HOME
+                                detailRoute = DetailRoute.NONE
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentTab == MainTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
+                                    contentDescription = "Home"
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Home",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (currentTab == MainTab.HOME) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = SpotifyGreenBright,
+                                unselectedIconColor = SpotifyTextSecondary,
+                                selectedTextColor = SpotifyGreenBright,
+                                unselectedTextColor = SpotifyTextSecondary,
+                                indicatorColor = Color.Transparent
+                            )
                         )
-                    },
-                    label = {
-                        Text(
-                            text = "Home",
-                            fontSize = 11.sp,
-                            fontWeight = if (currentTab == MainTab.HOME) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = SpotifyWhite,
-                        unselectedIconColor = SpotifyTextSecondary,
-                        selectedTextColor = SpotifyWhite,
-                        unselectedTextColor = SpotifyTextSecondary,
-                        indicatorColor = Color.Transparent
-                    )
-                )
 
-                NavigationBarItem(
-                    selected = currentTab == MainTab.SEARCH && detailRoute == DetailRoute.NONE,
-                    onClick = {
-                        currentTab = MainTab.SEARCH
-                        detailRoute = DetailRoute.NONE
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == MainTab.SEARCH) Icons.Filled.Search else Icons.Outlined.Search,
-                            contentDescription = "Search"
+                        NavigationBarItem(
+                            selected = currentTab == MainTab.SEARCH && detailRoute == DetailRoute.NONE,
+                            onClick = {
+                                currentTab = MainTab.SEARCH
+                                detailRoute = DetailRoute.NONE
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentTab == MainTab.SEARCH) Icons.Filled.Search else Icons.Outlined.Search,
+                                    contentDescription = "Search"
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Search",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (currentTab == MainTab.SEARCH) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = SpotifyGreenBright,
+                                unselectedIconColor = SpotifyTextSecondary,
+                                selectedTextColor = SpotifyGreenBright,
+                                unselectedTextColor = SpotifyTextSecondary,
+                                indicatorColor = Color.Transparent
+                            )
                         )
-                    },
-                    label = {
-                        Text(
-                            text = "Search",
-                            fontSize = 11.sp,
-                            fontWeight = if (currentTab == MainTab.SEARCH) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = SpotifyWhite,
-                        unselectedIconColor = SpotifyTextSecondary,
-                        selectedTextColor = SpotifyWhite,
-                        unselectedTextColor = SpotifyTextSecondary,
-                        indicatorColor = Color.Transparent
-                    )
-                )
 
-                NavigationBarItem(
-                    selected = currentTab == MainTab.LIBRARY && detailRoute == DetailRoute.NONE,
-                    onClick = {
-                        currentTab = MainTab.LIBRARY
-                        detailRoute = DetailRoute.NONE
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == MainTab.LIBRARY) Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic,
-                            contentDescription = "Your Library"
+                        NavigationBarItem(
+                            selected = currentTab == MainTab.LIBRARY && detailRoute == DetailRoute.NONE,
+                            onClick = {
+                                currentTab = MainTab.LIBRARY
+                                detailRoute = DetailRoute.NONE
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentTab == MainTab.LIBRARY) Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic,
+                                    contentDescription = "Your Library"
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Your Library",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (currentTab == MainTab.LIBRARY) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = SpotifyGreenBright,
+                                unselectedIconColor = SpotifyTextSecondary,
+                                selectedTextColor = SpotifyGreenBright,
+                                unselectedTextColor = SpotifyTextSecondary,
+                                indicatorColor = Color.Transparent
+                            )
                         )
-                    },
-                    label = {
-                        Text(
-                            text = "Your Library",
-                            fontSize = 11.sp,
-                            fontWeight = if (currentTab == MainTab.LIBRARY) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = SpotifyWhite,
-                        unselectedIconColor = SpotifyTextSecondary,
-                        selectedTextColor = SpotifyWhite,
-                        unselectedTextColor = SpotifyTextSecondary,
-                        indicatorColor = Color.Transparent
-                    )
-                )
+                    }
+                }
             }
         },
         containerColor = SpotifyBackground
@@ -364,11 +394,14 @@ fun MainScreen(
                         playbackState = playbackState,
                         favorites = favorites,
                         downloadStatus = downloadStatus,
+                        relatedArtists = relatedArtists,
+                        isLoadingRelatedArtists = isLoadingRelatedArtists,
                         onBack = { viewModel.closeArtist() },
                         onPlayQueue = { songs, index -> viewModel.playQueue(songs, index) },
                         onFavoriteClick = { viewModel.toggleFavorite(it) },
                         onTrackMoreClick = { selectedTrackForOptions = it },
                         onOpenAlbum = { viewModel.openAlbum(it) },
+                        onOpenRelatedArtist = { viewModel.openArtist(it) },
                         onStartRadio = { viewModel.startArtistRadio(artist) },
                         isFollowed = followedArtists.any { it.id == artist.id },
                         onToggleFollowed = { viewModel.toggleFollowedArtist(artist) }
@@ -387,6 +420,19 @@ fun MainScreen(
                     AudioSettingsScreen(onBack = { detailRoute = DetailRoute.NONE })
                 }
 
+                detailRoute == DetailRoute.STORAGE_DASHBOARD -> {
+                    StorageDashboardScreen(
+                        breakdown = storageBreakdown,
+                        isLoading = isLoadingStorage,
+                        onRefresh = { viewModel.refreshStorageBreakdown() },
+                        onClearImageCache = { viewModel.clearImageCache() },
+                        onClearTempCache = { viewModel.clearTempCache() },
+                        onDeleteDownloadedTrack = { songId -> viewModel.removeDownload(songId) },
+                        onClearAllDownloads = { viewModel.clearAllDownloads() },
+                        onBack = { detailRoute = DetailRoute.NONE }
+                    )
+                }
+
                 detailRoute == DetailRoute.PODCASTS -> {
                     PodcastsScreen(
                         playbackState = playbackState,
@@ -401,6 +447,13 @@ fun MainScreen(
                     AboutScreen(onBack = { detailRoute = DetailRoute.NONE })
                 }
 
+                detailRoute == DetailRoute.DISCOVER -> {
+                    DiscoverOnboardingScreen(
+                        onStartClick = { detailRoute = DetailRoute.NONE },
+                        onBackClick = { detailRoute = DetailRoute.NONE }
+                    )
+                }
+
                 else -> {
                     when (currentTab) {
                         MainTab.HOME -> {
@@ -411,9 +464,13 @@ fun MainScreen(
                                 topArtists = stats.topArtists,
                                 playlists = playlists,
                                 albums = albums,
+                                chartFeeds = chartFeeds,
+                                isLoadingCharts = isLoadingCharts,
+                                offlineMode = offlineMode,
                                 onSongClick = { viewModel.playSong(it) },
                                 onPlayQueue = { songs, index -> viewModel.playQueue(songs, index) },
                                 onFavoriteClick = { viewModel.toggleFavorite(it) },
+                                onTrackMoreClick = { selectedTrackForOptions = it },
                                 onShuffleAll = { viewModel.shuffleAll() },
                                 onOpenSettings = {
                                     currentTab = MainTab.HOME
@@ -421,8 +478,11 @@ fun MainScreen(
                                 },
                                 onOpenAlbum = { viewModel.openAlbum(it) },
                                 onOpenArtist = { viewModel.openArtist(it) },
+                                onOpenChart = { selectedChartForSheet = it },
+                                onRefreshCharts = { viewModel.refreshCharts(forceRefresh = true) },
                                 onOpenStats = { detailRoute = DetailRoute.STATS },
-                                onOpenAudioSettings = { detailRoute = DetailRoute.AUDIO_SETTINGS }
+                                onOpenAudioSettings = { detailRoute = DetailRoute.AUDIO_SETTINGS },
+                                onOpenDiscover = { detailRoute = DetailRoute.DISCOVER }
                             )
                         }
 
@@ -498,6 +558,51 @@ fun MainScreen(
                                 },
                                 onRemovePlaylistCover = { viewModel.removePlaylistCover(it) },
                                 onDownloadPlaylist = { viewModel.downloadSongs(it.songs) },
+                                onOpenStorageDashboard = { detailRoute = DetailRoute.STORAGE_DASHBOARD },
+                                onImportPlaylistsUri = { uri, onDone ->
+                                    coroutineScope.launch {
+                                        val imported = viewModel.importPlaylistsFromUri(uri)
+                                        val message = if (imported.isEmpty()) {
+                                            "No valid tracks found in selected file"
+                                        } else if (imported.size == 1) {
+                                            "Imported '${imported.first().name}' (${imported.first().songs.size} tracks)"
+                                        } else {
+                                            "Imported ${imported.size} playlists"
+                                        }
+                                        onDone(message)
+                                        snackbarHostState.showSnackbar(message)
+                                    }
+                                },
+                                onImportPlaylistsText = { text, name, onDone ->
+                                    val imported = viewModel.importPlaylistsFromText(text, name)
+                                    val message = if (imported.isEmpty()) {
+                                        "Couldn't parse any tracks from input"
+                                    } else {
+                                        "Imported '${imported.first().name}' (${imported.first().songs.size} tracks)"
+                                    }
+                                    onDone(message)
+                                    coroutineScope.launch { snackbarHostState.showSnackbar(message) }
+                                },
+                                onBackupAllPlaylistsUri = { uri, onDone ->
+                                    coroutineScope.launch {
+                                        val ok = viewModel.writeTextToUri(uri, viewModel.exportAllPlaylistsJson())
+                                        onDone(ok)
+                                        snackbarHostState.showSnackbar(
+                                            if (ok) "Backup saved (${playlists.size} playlists)" else "Couldn't save backup"
+                                        )
+                                    }
+                                },
+                                onSavePlaylistExportUri = { uri, content, onDone ->
+                                    coroutineScope.launch {
+                                        val ok = viewModel.writeTextToUri(uri, content)
+                                        onDone(ok)
+                                    }
+                                },
+                                onSharePlaylistExportFile = { filename, mimeType, content ->
+                                    coroutineScope.launch {
+                                        ShareUtils.sharePlaylistExportFile(context, filename, mimeType, content)
+                                    }
+                                },
                                 openPlaylistId = pendingPlaylistDeepLink,
                                 onPlaylistDeepLinkConsumed = { pendingPlaylistDeepLink = null }
                             )
@@ -507,7 +612,7 @@ fun MainScreen(
             }
 
             // Floating MiniPlayer above Navigation Bar
-            if (playbackState.currentSong != null) {
+            if (playbackState.currentSong != null && detailRoute != DetailRoute.DISCOVER) {
                 MiniPlayer(
                     playbackState = playbackState,
                     isFavorite = favorites.contains(playbackState.currentSong?.id),
@@ -573,10 +678,11 @@ fun MainScreen(
 
     // Queue Bottom Sheet
     if (isQueueVisible) {
+        val queueSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { isQueueVisible = false },
             sheetState = queueSheetState,
-            containerColor = SpotifyDarkGray
+            containerColor = Color(0xF20C0C14)
         ) {
             QueueBottomSheet(
                 queue = playbackState.queue,
@@ -678,6 +784,16 @@ fun MainScreen(
                     isSettingsVisible = false
                     detailRoute = DetailRoute.ABOUT
                 },
+                onOpenDiscover = {
+                    coroutineScope.launch { settingsSheetState.hide() }
+                    isSettingsVisible = false
+                    detailRoute = DetailRoute.DISCOVER
+                },
+                onOpenStorageDashboard = {
+                    coroutineScope.launch { settingsSheetState.hide() }
+                    isSettingsVisible = false
+                    detailRoute = DetailRoute.STORAGE_DASHBOARD
+                },
                 themeMode = themeMode,
                 onThemeModeSelected = { viewModel.setThemeMode(it) },
                 hideExplicit = hideExplicit,
@@ -719,8 +835,36 @@ fun MainScreen(
             onToggleFavoriteClick = { viewModel.toggleFavorite(track) },
             onPlayNextClick = { viewModel.playNext(track) },
             onSongRadioClick = { viewModel.startSongRadio(track) },
-            onShareClick = { ShareUtils.shareSong(context, track) },
+            onShareClick = {
+                trackForStoryShare = track
+                selectedTrackForOptions = null
+            },
             onDismiss = { selectedTrackForOptions = null }
+        )
+    }
+
+    // Shareable Story & Card Generator Modal
+    trackForStoryShare?.let { track ->
+        val matchingLyrics = if (track.id == playbackState.currentSong?.id) playbackState.lyrics else null
+        ShareCardModal(
+            song = track,
+            lyrics = matchingLyrics,
+            onDismiss = { trackForStoryShare = null }
+        )
+    }
+
+    // Chart Detail Modal Sheet (Global & Regional Top Charts)
+    selectedChartForSheet?.let { chart ->
+        ChartDetailSheet(
+            chart = chart,
+            playbackState = playbackState,
+            favorites = favorites,
+            onPlayQueue = { songs, idx ->
+                viewModel.playQueue(songs, idx)
+            },
+            onFavoriteClick = { viewModel.toggleFavorite(it) },
+            onTrackMoreClick = { selectedTrackForOptions = it },
+            onDismiss = { selectedChartForSheet = null }
         )
     }
 

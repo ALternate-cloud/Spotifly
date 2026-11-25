@@ -10,6 +10,10 @@ import com.example.spotifly.data.history.SearchHistoryManager
 import com.example.spotifly.data.catalog.LibraryGrouping
 import com.example.spotifly.data.local.LocalMusicRepository
 import com.example.spotifly.data.offline.OfflineMusicManager
+import com.example.spotifly.data.offline.StorageBreakdown
+import com.example.spotifly.data.offline.StorageInspector
+import com.example.spotifly.data.online.ChartFeed
+import com.example.spotifly.data.online.DiscoveryService
 import com.example.spotifly.data.online.OnlineMusicService
 import com.example.spotifly.data.playlist.PlaylistRepository
 import com.example.spotifly.data.prefs.UserPreferencesManager
@@ -29,6 +33,8 @@ import com.example.spotifly.player.MusicController
 import com.example.spotifly.theme.AccentTheme
 import com.example.spotifly.theme.AccentThemes
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -99,6 +105,23 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private val _openArtist = MutableStateFlow<Artist?>(null)
     val openArtist: StateFlow<Artist?> = _openArtist.asStateFlow()
 
+    private val artistBackStack = ArrayDeque<Artist>()
+    private var artistLoadJob: Job? = null
+
+    private val _relatedArtists = MutableStateFlow<List<Artist>>(emptyList())
+    val relatedArtists: StateFlow<List<Artist>> = _relatedArtists.asStateFlow()
+
+    private val _isLoadingRelatedArtists = MutableStateFlow(false)
+    val isLoadingRelatedArtists: StateFlow<Boolean> = _isLoadingRelatedArtists.asStateFlow()
+
+    private val _chartFeeds = MutableStateFlow<List<ChartFeed>>(emptyList())
+    val chartFeeds: StateFlow<List<ChartFeed>> = _chartFeeds.asStateFlow()
+
+    private val _isLoadingCharts = MutableStateFlow(false)
+    val isLoadingCharts: StateFlow<Boolean> = _isLoadingCharts.asStateFlow()
+
+    private var chartsLoadJob: Job? = null
+
     val accentTheme: StateFlow<AccentTheme> = userPreferences.accentName
         .map { name -> AccentThemes.find { it.name == name } ?: AccentThemes.first() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, userPreferences.accent)
@@ -112,6 +135,12 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _cacheBytes = MutableStateFlow(0L)
     val cacheBytes: StateFlow<Long> = _cacheBytes.asStateFlow()
+
+    private val _storageBreakdown = MutableStateFlow(StorageBreakdown())
+    val storageBreakdown: StateFlow<StorageBreakdown> = _storageBreakdown.asStateFlow()
+
+    private val _isLoadingStorage = MutableStateFlow(false)
+    val isLoadingStorage: StateFlow<Boolean> = _isLoadingStorage.asStateFlow()
 
     // Aggregates all known songs for searching and library views. Offline mode drops
     // the streaming catalogue so the library only offers things that can actually play.
@@ -142,15 +171,35 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         scanLocalSongs()
         observeDownloadedBytes()
         refreshCacheBytes()
+        viewModelScope.launch {
+            offlineMode.collect { isOffline ->
+                if (!isOffline && _chartFeeds.value.isEmpty()) {
+                    refreshCharts()
+                }
+            }
+        }
+    }
+
+    fun refreshCharts(forceRefresh: Boolean = false) {
+        if (offlineMode.value) return
+        if (chartsLoadJob?.isActive == true && !forceRefresh) return
+        chartsLoadJob?.cancel()
+        chartsLoadJob = viewModelScope.launch {
+            _isLoadingCharts.value = true
+            val feeds = runCatching { DiscoveryService.getTopCharts(forceRefresh = forceRefresh) }
+                .getOrDefault(emptyList())
+            if (feeds.isNotEmpty()) {
+                _chartFeeds.value = feeds
+            }
+            _isLoadingCharts.value = false
+        }
     }
 
     @OptIn(coil.annotation.ExperimentalCoilApi::class)
     private fun refreshCacheBytes() {
         viewModelScope.launch(Dispatchers.IO) {
             val loader = Coil.imageLoader(getApplication())
-            val disk = loader.diskCache?.size ?: 0L
-            val memory = loader.memoryCache?.size?.toLong() ?: 0L
-            _cacheBytes.value = disk + memory
+            _cacheBytes.value = loader.diskCache?.size ?: 0L
         }
     }
 
@@ -161,7 +210,29 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             runCatching { loader.diskCache?.clear() }
             loader.memoryCache?.clear()
             _cacheBytes.value = loader.diskCache?.size ?: 0L
+            refreshStorageBreakdownSync()
         }
+    }
+
+    fun clearTempCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            StorageInspector.clearTempCache(getApplication())
+            refreshStorageBreakdownSync()
+        }
+    }
+
+    fun refreshStorageBreakdown() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoadingStorage.value = true
+            refreshStorageBreakdownSync()
+            _isLoadingStorage.value = false
+        }
+    }
+
+    private fun refreshStorageBreakdownSync() {
+        val breakdown = StorageInspector.inspect(getApplication(), offlineMusicManager.downloadedSongs.value)
+        _storageBreakdown.value = breakdown
+        _cacheBytes.value = breakdown.imageCacheBytes
     }
 
     private fun observeDownloadedBytes() {
@@ -169,6 +240,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             offlineMusicManager.downloadedSongs.collect { songs ->
                 _downloadedBytes.value = withContext(Dispatchers.IO) {
                     songs.sumOf { song -> song.localFilePath?.let { File(it).length() } ?: 0L }
+                }
+                withContext(Dispatchers.IO) {
+                    refreshStorageBreakdownSync()
                 }
             }
         }
@@ -287,28 +361,59 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         _openAlbum.value = null
     }
 
-    fun openArtist(artist: Artist) {
+    fun openArtist(artist: Artist, fromBack: Boolean = false) {
+        val currentOpen = _openArtist.value
+        if (!fromBack && currentOpen != null && currentOpen.id != artist.id) {
+            artistBackStack.addLast(currentOpen)
+        }
+        artistLoadJob?.cancel()
         _openArtist.value = artist
-        if (artist.songs.isEmpty() && !offlineMode.value) {
-            viewModelScope.launch {
-                val songs = withContext(Dispatchers.IO) {
-                    OnlineMusicService.getArtistSongs(artist.id, artist.name)
+        _relatedArtists.value = emptyList()
+        _isLoadingRelatedArtists.value = true
+
+        artistLoadJob = viewModelScope.launch {
+            val needSongs = artist.songs.isEmpty() && !offlineMode.value
+            val songsDeferred = async(Dispatchers.IO) {
+                if (needSongs) OnlineMusicService.getArtistSongs(artist.id, artist.name) else emptyList()
+            }
+            val relatedDeferred = async(Dispatchers.IO) {
+                if (offlineMode.value) {
+                    DiscoveryService.deriveLibraryRelatedArtists(artist.name, allSongs.value)
+                } else {
+                    DiscoveryService.getRelatedArtists(artist.name, allSongs.value)
                 }
-                if (songs.isEmpty()) return@launch
-                _openArtist.value?.let { current ->
-                    if (current.id == artist.id) {
-                        _openArtist.value = current.copy(
-                            songs = songs,
-                            albums = LibraryGrouping.albums(songs)
-                        )
-                    }
+            }
+
+            if (needSongs) {
+                val songs = songsDeferred.await()
+                if (songs.isNotEmpty() && _openArtist.value?.id == artist.id) {
+                    val populated = artist.copy(
+                        songs = songs,
+                        albums = LibraryGrouping.albums(songs),
+                        artworkUrl = artist.artworkUrl ?: songs.firstNotNullOfOrNull { it.artworkUrl }
+                    )
+                    _openArtist.value = populated
                 }
+            }
+
+            val related = relatedDeferred.await()
+            if (_openArtist.value?.id == artist.id) {
+                _relatedArtists.value = related
+                _isLoadingRelatedArtists.value = false
             }
         }
     }
 
     fun closeArtist() {
-        _openArtist.value = null
+        artistLoadJob?.cancel()
+        val previous = if (artistBackStack.isNotEmpty()) artistBackStack.removeLast() else null
+        if (previous != null) {
+            openArtist(previous, fromBack = true)
+        } else {
+            _openArtist.value = null
+            _relatedArtists.value = emptyList()
+            _isLoadingRelatedArtists.value = false
+        }
     }
 
     /**
@@ -474,6 +579,42 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun removeDownload(songId: String) {
         offlineMusicManager.removeDownload(songId)
+    }
+
+    fun clearAllDownloads() {
+        offlineMusicManager.clearAllDownloads()
+    }
+
+    fun exportAllPlaylistsJson(): String = playlistRepository.exportAllPlaylistsJson()
+
+    suspend fun writeTextToUri(uri: Uri, content: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            getApplication<Application>().contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(content.toByteArray(Charsets.UTF_8))
+                out.flush()
+            } != null
+        }.getOrDefault(false)
+    }
+
+    suspend fun importPlaylistsFromUri(uri: Uri, fallbackName: String = "Imported Playlist"): List<Playlist> =
+        withContext(Dispatchers.IO) {
+            val text = runCatching {
+                getApplication<Application>().contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull().orEmpty()
+            if (text.isBlank()) return@withContext emptyList()
+            playlistRepository.importPlaylists(
+                rawText = text,
+                fallbackName = fallbackName,
+                knownLibrary = (allSongs.value + downloadedSongs.value + localSongs.value).distinctBy { it.id }
+            )
+        }
+
+    fun importPlaylistsFromText(rawText: String, fallbackName: String): List<Playlist> {
+        return playlistRepository.importPlaylists(
+            rawText = rawText,
+            fallbackName = fallbackName,
+            knownLibrary = (allSongs.value + downloadedSongs.value + localSongs.value).distinctBy { it.id }
+        )
     }
 
     fun isSongDownloaded(songId: String): Boolean {

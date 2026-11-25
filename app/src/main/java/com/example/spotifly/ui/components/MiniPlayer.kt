@@ -1,6 +1,7 @@
 package com.example.spotifly.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -36,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.spotifly.model.PlaybackState
+import com.example.spotifly.theme.Glassmorphism
 import com.example.spotifly.theme.SpotifyCard
 import com.example.spotifly.theme.SpotifyElevated
 import com.example.spotifly.theme.SpotifyGreen
@@ -56,23 +60,26 @@ fun MiniPlayer(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(SpotifyElevated)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .shadow(24.dp, RoundedCornerShape(16.dp), ambientColor = Color.Black)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Glassmorphism.darkGlassBrush)
+            .border(1.2.dp, Glassmorphism.specularBorderBrush, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Artwork
+            // Artwork with subtle glassy bezel
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(SpotifyCard),
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF14141E))
+                    .border(1.dp, Color(0x35FFFFFF), RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (!song.artworkUrl.isNullOrEmpty()) {
@@ -167,7 +174,7 @@ fun MiniPlayer(
                 .fillMaxWidth()
                 .height(2.5.dp),
             color = SpotifyGreen,
-            trackColor = SpotifyCard,
+            trackColor = Color(0x18FFFFFF),
             strokeCap = StrokeCap.Round
         )
     }
