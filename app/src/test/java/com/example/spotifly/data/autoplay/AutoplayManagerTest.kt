@@ -36,10 +36,76 @@ class AutoplayManagerTest {
         assertEquals(listOf(good), result)
     }
 
-    @Test fun limitsBatchAndAlternatesArtists() {
-        val candidates = (1..15).map { AutoplayCandidate(song("track$it", "artist${it % 3}")) }
+    @Test fun limitsBatchToDefaultSizeAndAlternatesArtists() {
+        val candidates = (1..20).map { AutoplayCandidate(song("track$it", "artist${it % 3}")) }
         val result = AutoplayManager.rankCandidates(song("seed"), emptyList(), candidates, measured = { mellow })
+        assertEquals(AutoplayManager.DEFAULT_BATCH_SIZE, result.size)
+        assertTrue(result.zipWithNext().all { (a, b) -> a.artist != b.artist })
+    }
+
+    @Test fun respectsCustomTargetSize() {
+        val candidates = (1..20).map { AutoplayCandidate(song("track$it", "artist${it % 3}")) }
+        val result = AutoplayManager.rankCandidates(
+            seed = song("seed"),
+            recentPlayed = emptyList(),
+            candidates = candidates,
+            targetSize = 6,
+            measured = { mellow }
+        )
         assertEquals(6, result.size)
         assertTrue(result.zipWithNext().all { (a, b) -> a.artist != b.artist })
+    }
+
+    @Test fun usesRelaxedFallbackTierWhenPrimaryPoolExhaustedWhileRespectingFilters() {
+        val primary = song("primary", "artist1")
+        val midEnergy = song("mid", "artist2")
+        val skippedMid = song("skipped_mid", "artist3")
+        val excludedMid = song("excluded_mid", "artist4")
+        val podcastMid = song("podcast_mid", "artist5").copy(isPodcast = true)
+        val extremeLoud = song("party", "artist6")
+
+        val midVector = VibeVector(energy = 0.78, valence = 0.55, tempo = 0.55, acousticness = 0.35, danceability = 0.60)
+
+        val result = AutoplayManager.rankCandidates(
+            seed = song("seed"),
+            recentPlayed = emptyList(),
+            candidates = listOf(
+                AutoplayCandidate(primary),
+                AutoplayCandidate(midEnergy),
+                AutoplayCandidate(skippedMid),
+                AutoplayCandidate(excludedMid),
+                AutoplayCandidate(podcastMid),
+                AutoplayCandidate(extremeLoud)
+            ),
+            excludeIds = setOf("excluded_mid"),
+            userSkippedFastIds = setOf("skipped_mid"),
+            targetSize = 5,
+            measured = {
+                when (it.id) {
+                    "party" -> loud
+                    "mid", "skipped_mid", "excluded_mid", "podcast_mid" -> midVector
+                    else -> mellow
+                }
+            }
+        )
+
+        assertEquals(listOf(primary, midEnergy), result)
+    }
+
+    @Test fun skipsRelaxedTierWhenPrimaryPoolMeetsTargetSize() {
+        val primarySongs = (1..4).map { AutoplayCandidate(song("p$it", "artist${it % 3}")) }
+        val midEnergy = AutoplayCandidate(song("mid", "artist4"))
+        val midVector = VibeVector(energy = 0.78, valence = 0.55, tempo = 0.55, acousticness = 0.35, danceability = 0.60)
+
+        val result = AutoplayManager.rankCandidates(
+            seed = song("seed"),
+            recentPlayed = emptyList(),
+            candidates = primarySongs + midEnergy,
+            targetSize = 4,
+            measured = { if (it.id == "mid") midVector else mellow }
+        )
+
+        assertEquals(4, result.size)
+        assertFalse(result.any { it.id == "mid" })
     }
 }

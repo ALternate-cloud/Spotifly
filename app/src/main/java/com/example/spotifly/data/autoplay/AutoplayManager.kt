@@ -25,22 +25,39 @@ object AutoplayManager {
         .followRedirects(true)
         .build()
 
-    private const val TARGET_QUEUE_SIZE = 6
+    const val DEFAULT_BATCH_SIZE = 15
+    private const val PRIMARY_ENERGY_TOLERANCE = 0.4
+    private const val RELAXED_ENERGY_TOLERANCE = 0.6
 
-    /** Small batches keep recommendations anchored to what is actually playing. */
+    /** Stages a rich batch of similar tracks while staying anchored to [seed]. */
     suspend fun buildAutoplayQueue(
         seed: Song,
         recentPlayed: List<Song>,
         excludeIds: Set<String>,
         userLikedIds: Set<String> = emptySet(),
         userSkippedFastIds: Set<String> = emptySet(),
+        targetSize: Int = DEFAULT_BATCH_SIZE,
         measured: (Song) -> VibeVector? = { null },
         prepareCandidates: suspend (List<AutoplayCandidate>) -> Unit = {}
     ): List<Song> = withContext(Dispatchers.IO) {
+        if (targetSize <= 0) return@withContext emptyList()
         val candidates = fetchAllSimilarCandidates(seed)
-        prepareCandidates(candidates.filterNot { it.song.id in excludeIds })
-        rankCandidates(seed, recentPlayed, candidates, excludeIds,
-            userLikedIds, userSkippedFastIds, measured)
+        prepareCandidates(
+            candidates.filterNot {
+                it.song.id in excludeIds ||
+                    (it.song.internalId.isNotBlank() && it.song.internalId in excludeIds)
+            }
+        )
+        rankCandidates(
+            seed = seed,
+            recentPlayed = recentPlayed,
+            candidates = candidates,
+            excludeIds = excludeIds,
+            userLikedIds = userLikedIds,
+            userSkippedFastIds = userSkippedFastIds,
+            targetSize = targetSize,
+            measured = measured
+        )
     }
 
     internal fun rankCandidates(
@@ -50,39 +67,105 @@ object AutoplayManager {
         excludeIds: Set<String> = emptySet(),
         userLikedIds: Set<String> = emptySet(),
         userSkippedFastIds: Set<String> = emptySet(),
+        targetSize: Int = DEFAULT_BATCH_SIZE,
         measured: (Song) -> VibeVector? = { null }
     ): List<Song> {
+        if (targetSize <= 0) return emptyList()
         val target = VibeFeatures.profileFor(seed, measured(seed))
-        val pool = candidates.filter {
-            val profile = VibeFeatures.profileFor(it.song, measured(it.song))
-            val similarEnergy = kotlin.math.abs(target.vector.energy - profile.vector.energy) <= 0.4
-            similarEnergy &&
-                it.song.internalId !in excludeIds &&
-                it.song.id !in userSkippedFastIds &&
-                it.song.internalId !in userSkippedFastIds &&
-                TrackMatching.isVersionCompatible(seed, it.song.title, it.song.artist)
-        }.sortedByDescending { it.song.id in userLikedIds || it.song.internalId in userLikedIds }
+        val eligibleWithEnergyDiff = candidates
+            .asSequence()
+            .filter { isEligibleCandidate(it, seed, excludeIds, userSkippedFastIds) }
+            .sortedByDescending {
+                it.song.id in userLikedIds ||
+                    (it.song.internalId.isNotBlank() && it.song.internalId in userLikedIds)
+            }
+            .map { candidate ->
+                val profile = VibeFeatures.profileFor(candidate.song, measured(candidate.song))
+                candidate to kotlin.math.abs(target.vector.energy - profile.vector.energy)
+            }
+            .toList()
+
+        val primaryPool = eligibleWithEnergyDiff
+            .filter { (_, energyDiff) -> energyDiff <= PRIMARY_ENERGY_TOLERANCE }
+            .map { (candidate, _) -> candidate }
+
         val result = mutableListOf<Song>()
-        repeat(TARGET_QUEUE_SIZE) {
+        pickFromPool(
+            pool = primaryPool,
+            targetSize = targetSize,
+            seed = seed,
+            recentPlayed = recentPlayed,
+            excludeIds = excludeIds,
+            measured = measured,
+            result = result
+        )
+
+        if (result.size < targetSize) {
+            val relaxedPool = eligibleWithEnergyDiff
+                .filter { (_, energyDiff) ->
+                    energyDiff > PRIMARY_ENERGY_TOLERANCE && energyDiff <= RELAXED_ENERGY_TOLERANCE
+                }
+                .map { (candidate, _) -> candidate }
+            pickFromPool(
+                pool = relaxedPool,
+                targetSize = targetSize,
+                seed = seed,
+                recentPlayed = recentPlayed,
+                excludeIds = excludeIds,
+                measured = measured,
+                result = result
+            )
+        }
+        return result
+    }
+
+    private fun isEligibleCandidate(
+        candidate: AutoplayCandidate,
+        seed: Song,
+        excludeIds: Set<String>,
+        userSkippedFastIds: Set<String>
+    ): Boolean {
+        val song = candidate.song
+        if (song.isPodcast || song.id.isBlank()) return false
+        if (song.id in excludeIds) return false
+        if (song.internalId.isNotBlank() && song.internalId in excludeIds) return false
+        if (song.id in userSkippedFastIds) return false
+        if (song.internalId.isNotBlank() && song.internalId in userSkippedFastIds) return false
+        return TrackMatching.isVersionCompatible(seed, song.title, song.artist)
+    }
+
+    private fun pickFromPool(
+        pool: List<AutoplayCandidate>,
+        targetSize: Int,
+        seed: Song,
+        recentPlayed: List<Song>,
+        excludeIds: Set<String>,
+        measured: (Song) -> VibeVector?,
+        result: MutableList<Song>
+    ) {
+        if (pool.isEmpty()) return
+        while (result.size < targetSize) {
             val previousArtist = TrackMatching.normalizeArtist((result.lastOrNull() ?: seed).primaryArtist)
             val available = pool.filter { candidate ->
                 result.none { TrackMatching.isSameRecording(it, candidate.song) }
             }
-            if (available.isEmpty()) return result
+            if (available.isEmpty()) return
             val varied = available.filter {
                 TrackMatching.normalizeArtist(it.song.primaryArtist) != previousArtist
+            }
+            val resultIds = result.flatMap { song ->
+                listOfNotNull(song.id, song.internalId.takeIf(String::isNotBlank))
             }
             val pick = VibeRanker.pick(
                 currentSong = seed,
                 history = recentPlayed,
                 candidates = varied.ifEmpty { available },
-                excludeIds = excludeIds + result.map { it.id },
+                excludeIds = excludeIds + resultIds,
                 excludeTitles = result.map { VibeFeatures.titleKey(it) }.toSet(),
                 measured = measured
-            ) ?: return result
+            ) ?: return
             result.add(pick.song)
         }
-        return result
     }
 
     /**

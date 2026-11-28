@@ -1,16 +1,16 @@
 # 🎵 Spotifly — Dark Cinematic Android Music Player
 
 <p align="center">
-  <a href="https://github.com/ALternate-cloud/Spotifly/releases/download/v2.0/Spotifly-2.0.apk"><strong>Download Spotifly 2.0 APK</strong></a>
+  <a href="https://github.com/ALternate-cloud/Spotifly/releases/download/v2.1/Spotifly-2.1.apk"><strong>Download Spotifly 2.1 APK</strong></a>
   &nbsp;•&nbsp;
-  <a href="https://github.com/ALternate-cloud/Spotifly/releases/tag/v2.0"><strong>Release Notes & SHA-256</strong></a>
+  <a href="https://github.com/ALternate-cloud/Spotifly/releases/tag/v2.1"><strong>Release Notes & SHA-256</strong></a>
   &nbsp;•&nbsp;
   <a href="LICENSE"><strong>Non-Commercial License</strong></a>
 </p>
 
-> **Requires Android 7.0 (API 24) or newer.** Download `Spotifly-2.0.apk`, tap it to open, and choose **Install** (allow installation from your browser or file manager if prompted). This is a debug-signed release compatible with `v1.1` / `v1.2` in-place upgrades so existing users keep their local library.
+> **Requires Android 7.0 (API 24) or newer.** Download `Spotifly-2.1.apk`, tap it to open, and choose **Install** (allow installation from your browser or file manager if prompted). This is a debug-signed release compatible with `v1.1` / `v1.2` / `v2.0` in-place upgrades so existing users keep their local library.
 
-**Spotifly** is a native Android music player built with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material 3**. Version **2.0** introduces a **Dark Cinematic** visual system with frosted glassmorphism, dual **Curved** and **Immersive** player modes, real-time audio visualizers, tap-to-slide synchronized lyrics, live global/regional charts, lyric search, shareable story cards, granular storage tools, and playlist backup/import.
+**Spotifly** is a native Android music player built with **Jetpack Compose**, **AndroidX Media3 (ExoPlayer)**, and **Material 3**. Version **2.1** adds an **Endless Unlimited Autoplay Queue** with chained tail seeding and infinite queue loading plus an **In-App GitHub Update Checker** (in Settings, About, and as an automatic startup dialog), building on the **2.0** Dark Cinematic visual system with frosted glassmorphism, dual **Curved** and **Immersive** player modes, real-time audio visualizers, tap-to-slide synchronized lyrics, live global/regional charts, lyric search, shareable story cards, granular storage tools, and playlist backup/import.
 
 ---
 
@@ -45,9 +45,10 @@
 * **Global & Regional Charts**: Curated live shelves (*Global Top 25*, *India Top 25 / Superhits*, *UK Top 25*, *India Hot 25*) with inline play and full ranked `ChartDetailSheet`.
 * **Search by Lyrics & Related Artists**: Locate songs by remembered lyric snippets with LRCLIB line verification, and explore *"Fans Also Like"* graphs on artist detail screens.
 * **Online Catalogs + Local Device Music**: Multi-provider online streaming (JioSaavn, iTunes, Deezer) unified with local device `.mp3`, `.m4a`, `.flac`, and `.wav` playback via Android `MediaStore` (`READ_MEDIA_AUDIO` on Android 13+).
-* **Drag-and-Drop Queue & Smart Autoplay**: Reorder upcoming songs by dragging queue handles, start **Song Radio** powered by PCM Vibe Vector similarity, and save active queues as playlists.
+* **Drag-and-Drop Queue & Endless Unlimited Autoplay Queue**: Reorder upcoming songs by dragging queue handles, start **Song Radio** powered by PCM Vibe Vector similarity, enjoy **Endless Unlimited Autoplay** with chained tail seeding and infinite scroll/on-demand queue loading, and save active queues as playlists.
 
 ### 🧰 Offline, Audio Effects & Power-User Tools
+* **In-App GitHub Update Checker**: Automatically checks GitHub Releases on startup (with 12-hour throttling and version-skip support) and provides manual update checks with direct APK download and release notes from **Settings**, **About**, and a startup **Update Available** dialog.
 * **Audio Engine & Smart Sleep Timer**: 5-band Equalizer, Bass Boost, Crossfade, Mono Audio toggle, Loudness normalization, and a **Sleep Timer** with a progressive 30-second volume fade-out.
 * **Granular Storage & Cache Dashboard**: Inspect disk usage across downloaded tracks, podcast episodes, artwork cache, and temp buffers with one-tap category cleanup.
 * **Playlist Export & Import**: Export individual playlists to `.m3u8` / `.json`, create full-library JSON backups via Android SAF or share sheets, and import from files or pasted track lists.
@@ -58,7 +59,7 @@
 ## 📱 Installing the APK on Your Phone
 
 ### Method 1: Direct APK Download (Recommended)
-1. Download [`Spotifly-2.0.apk`](https://github.com/ALternate-cloud/Spotifly/releases/download/v2.0/Spotifly-2.0.apk) on your Android device.
+1. Download [`Spotifly-2.1.apk`](https://github.com/ALternate-cloud/Spotifly/releases/download/v2.1/Spotifly-2.1.apk) on your Android device.
 2. Open the downloaded file and tap **Install** (enable *"Allow from this source"* if prompted).
 3. Launch **Spotifly** and enjoy!
 
@@ -92,6 +93,7 @@ com.example.spotifly
 │   │   ├── PlaylistRepository.kt        // Local playlists & liked songs storage
 │   │   └── PlaylistBackupManager.kt     // .m3u8 / .json export, import & full backup
 │   ├── autoplay/                        // PCM Vibe Vector analysis & similarity radio ranking
+│   ├── update/AppUpdateChecker.kt       // GitHub Releases update checker, semver & skip persistence
 │   ├── cloud/                           // Firebase Auth & Firestore library sync
 │   ├── podcast/                         // RSS podcast feeds & parser
 │   ├── prefs/                           // UserPreferencesManager
@@ -124,7 +126,8 @@ com.example.spotifly
         ├── QueueBottomSheet.kt          // Drag-and-drop queue sheet
         ├── ChartDetailSheet.kt          // Full ranked chart sheet
         ├── ShareCardModal.kt / ShareUtils.kt // 9:16 & 1:1 Story card generator & sharing
-        └── SettingsSheet.kt             // App settings & cloud backup controls
+        ├── UpdateAvailableDialog.kt     // In-app GitHub update available modal dialog
+        └── SettingsSheet.kt             // App settings, update check & cloud backup controls
 ```
 
 ---
@@ -139,7 +142,7 @@ Configure the SDK via Android Studio, `ANDROID_HOME`, or an untracked `local.pro
 ./gradlew assembleDebug
 ```
 
-The output APK is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version **2.0** uses Android `versionCode 6`.
+The output APK is `app/build/outputs/apk/debug/app-debug.apk`. Android 7.0 (API 24) or newer is supported. Version **2.1** uses Android `versionCode 7`.
 
 ---
 

@@ -32,8 +32,10 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
@@ -49,6 +51,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.spotifly.BuildConfig
 import com.example.spotifly.theme.AccentTheme
 import com.example.spotifly.theme.AccentThemes
 import com.example.spotifly.theme.SpotifyCard
@@ -92,7 +95,11 @@ fun SettingsSheet(
     onOfflineModeChanged: (Boolean) -> Unit = {},
     cacheBytes: Long = 0L,
     onClearCache: () -> Unit = {},
-    accountSection: @Composable () -> Unit = {}
+    accountSection: @Composable () -> Unit = {},
+    currentVersionName: String = BuildConfig.VERSION_NAME,
+    updateStatusText: String? = null,
+    isCheckingUpdate: Boolean = false,
+    onCheckForUpdates: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -447,6 +454,55 @@ fun SettingsSheet(
         }
 
         Spacer(modifier = Modifier.height(18.dp))
+
+        // App updates
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(enabled = !isCheckingUpdate, onClick = onCheckForUpdates)
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.SystemUpdate,
+                contentDescription = null,
+                tint = SpotifyGreen,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Check for updates",
+                    color = SpotifyWhite,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = when {
+                        isCheckingUpdate -> "Checking for updates…"
+                        !updateStatusText.isNullOrBlank() -> updateStatusText
+                        else -> "Version $currentVersionName"
+                    },
+                    color = SpotifyTextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+            if (isCheckingUpdate) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = SpotifyGreen,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = "Check",
+                    color = SpotifyGreen,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
 
         // About
         SettingsRow(

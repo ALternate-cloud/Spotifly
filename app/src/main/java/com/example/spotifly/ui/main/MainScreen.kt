@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.spotifly.BuildConfig
 import com.example.spotifly.data.deeplink.DeepLinkTarget
 import com.example.spotifly.data.online.ChartFeed
 import com.example.spotifly.model.DownloadStatus
@@ -74,6 +75,7 @@ import com.example.spotifly.ui.components.SettingsSheet
 import com.example.spotifly.ui.components.ShareCardModal
 import com.example.spotifly.ui.components.ShareUtils
 import com.example.spotifly.ui.components.TrackOptionsBottomSheet
+import com.example.spotifly.ui.components.UpdateAvailableDialog
 import com.example.spotifly.ui.home.HomeScreen
 import com.example.spotifly.ui.library.LibraryScreen
 import com.example.spotifly.ui.podcast.PodcastsScreen
@@ -167,6 +169,9 @@ fun MainScreen(
     val isLoadingCharts by viewModel.isLoadingCharts.collectAsStateWithLifecycle()
     val storageBreakdown by viewModel.storageBreakdown.collectAsStateWithLifecycle()
     val isLoadingStorage by viewModel.isLoadingStorage.collectAsStateWithLifecycle()
+    val availableUpdate by viewModel.availableUpdate.collectAsStateWithLifecycle()
+    val isCheckingUpdate by viewModel.isCheckingUpdate.collectAsStateWithLifecycle()
+    val updateStatusText by viewModel.updateStatusText.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -444,7 +449,13 @@ fun MainScreen(
                 }
 
                 detailRoute == DetailRoute.ABOUT -> {
-                    AboutScreen(onBack = { detailRoute = DetailRoute.NONE })
+                    AboutScreen(
+                        onBack = { detailRoute = DetailRoute.NONE },
+                        currentVersionName = BuildConfig.VERSION_NAME,
+                        updateStatusText = updateStatusText,
+                        isCheckingUpdate = isCheckingUpdate,
+                        onCheckForUpdates = { viewModel.checkForUpdates(manual = true) }
+                    )
                 }
 
                 detailRoute == DetailRoute.DISCOVER -> {
@@ -697,6 +708,8 @@ fun MainScreen(
                 onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
                 onRemoveQueueItem = { index -> viewModel.removeFromQueue(index) },
                 autoplayNextId = playbackState.autoplayNextId,
+                isAutoplayEnabled = playbackState.isAutoplay,
+                onLoadMoreAutoplay = { viewModel.loadMoreAutoplay() },
                 onSaveAsPlaylist = {
                     queueToSave = playbackState.queue.toList()
                     queuePlaylistName = playbackState.queue.firstOrNull()?.let { "${it.title} Mix" }.orEmpty()
@@ -806,6 +819,10 @@ fun MainScreen(
                 onOfflineModeChanged = { viewModel.setOfflineMode(it) },
                 cacheBytes = cacheBytes,
                 onClearCache = { viewModel.clearImageCache() },
+                currentVersionName = BuildConfig.VERSION_NAME,
+                updateStatusText = updateStatusText,
+                isCheckingUpdate = isCheckingUpdate,
+                onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
                 onDismiss = {
                     coroutineScope.launch { settingsSheetState.hide() }
                     isSettingsVisible = false
@@ -879,6 +896,15 @@ fun MainScreen(
                 viewModel.addSongToPlaylist(p.id, track)
             },
             onDismiss = { selectedTrackForPlaylist = null }
+        )
+    }
+
+    availableUpdate?.let { updateInfo ->
+        UpdateAvailableDialog(
+            info = updateInfo,
+            currentVersion = BuildConfig.VERSION_NAME,
+            onDismiss = { viewModel.dismissUpdateDialog() },
+            onSkipVersion = { tagName -> viewModel.skipUpdateVersion(tagName) }
         )
     }
 }

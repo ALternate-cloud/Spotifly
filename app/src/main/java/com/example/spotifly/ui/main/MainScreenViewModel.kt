@@ -2,6 +2,7 @@ package com.example.spotifly.ui.main
 
 import android.app.Activity
 import android.app.Application
+import com.example.spotifly.BuildConfig
 import com.example.spotifly.data.cloud.CloudLibrarySync
 import com.example.spotifly.data.cloud.GoogleAccountManager
 import androidx.lifecycle.AndroidViewModel
@@ -18,6 +19,9 @@ import com.example.spotifly.data.online.OnlineMusicService
 import com.example.spotifly.data.playlist.PlaylistRepository
 import com.example.spotifly.data.prefs.UserPreferencesManager
 import com.example.spotifly.data.stats.ListeningStatsManager
+import com.example.spotifly.data.update.AppUpdateChecker
+import com.example.spotifly.data.update.AppUpdateInfo
+import com.example.spotifly.data.update.UpdateCheckResult
 import android.net.Uri
 import coil.Coil
 import com.example.spotifly.model.Album
@@ -122,6 +126,17 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     private var chartsLoadJob: Job? = null
 
+    private val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
+    val availableUpdate: StateFlow<AppUpdateInfo?> = _availableUpdate.asStateFlow()
+
+    private val _isCheckingUpdate = MutableStateFlow(false)
+    val isCheckingUpdate: StateFlow<Boolean> = _isCheckingUpdate.asStateFlow()
+
+    private val _updateStatusText = MutableStateFlow<String?>(null)
+    val updateStatusText: StateFlow<String?> = _updateStatusText.asStateFlow()
+
+    private var updateCheckJob: Job? = null
+
     val accentTheme: StateFlow<AccentTheme> = userPreferences.accentName
         .map { name -> AccentThemes.find { it.name == name } ?: AccentThemes.first() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, userPreferences.accent)
@@ -178,6 +193,67 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }
+        checkForUpdates(manual = false)
+    }
+
+    fun checkForUpdates(manual: Boolean = true) {
+        val context = getApplication<Application>()
+        if (!manual) {
+            if (offlineMode.value || !AppUpdateChecker.shouldAutoCheck(context)) return
+            if (updateCheckJob?.isActive == true) return
+        } else {
+            if (_isCheckingUpdate.value) return
+            updateCheckJob?.cancel()
+        }
+
+        updateCheckJob = viewModelScope.launch {
+            if (manual) {
+                _isCheckingUpdate.value = true
+            }
+            try {
+                val result = AppUpdateChecker.checkForUpdates(
+                    currentVersion = BuildConfig.VERSION_NAME,
+                    force = manual
+                )
+                if (!manual) {
+                    AppUpdateChecker.recordAutoCheck(context)
+                }
+                when (result) {
+                    is UpdateCheckResult.UpdateAvailable -> {
+                        if (manual || !AppUpdateChecker.isVersionSkipped(context, result.info.tagName)) {
+                            _updateStatusText.value = "Update ${result.info.versionName} available"
+                            _availableUpdate.value = result.info
+                        }
+                    }
+
+                    is UpdateCheckResult.UpToDate -> {
+                        if (manual) {
+                            _updateStatusText.value = "Up to date (${BuildConfig.VERSION_NAME})"
+                            _availableUpdate.value = null
+                        }
+                    }
+
+                    is UpdateCheckResult.Error -> {
+                        if (manual) {
+                            _updateStatusText.value = result.message
+                        }
+                    }
+                }
+            } finally {
+                if (manual) {
+                    _isCheckingUpdate.value = false
+                }
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _availableUpdate.value = null
+    }
+
+    fun skipUpdateVersion(tagName: String) {
+        AppUpdateChecker.skipVersion(getApplication<Application>(), tagName)
+        _availableUpdate.value = null
     }
 
     fun refreshCharts(forceRefresh: Boolean = false) {
@@ -322,6 +398,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun toggleAutoplay() {
         musicController.toggleAutoplay()
     }
+
+    fun loadMoreAutoplay() = musicController.loadMoreAutoplay()
 
     fun setPlaybackSpeed(speed: Float) {
         musicController.setPlaybackSpeed(speed)

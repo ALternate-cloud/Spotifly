@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,12 +33,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,12 +95,34 @@ fun QueueBottomSheet(
     onMoveQueueItem: (from: Int, to: Int) -> Unit = { _, _ -> },
     onRemoveQueueItem: (Int) -> Unit = {},
     autoplayNextId: String? = null,
+    isAutoplayEnabled: Boolean = false,
+    onLoadMoreAutoplay: () -> Unit = {},
     onClose: () -> Unit,
     onSaveAsPlaylist: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val itemPitchPx = with(density) { QUEUE_ITEM_PITCH.toPx() }
+    val listState = rememberLazyListState()
+    val latestOnLoadMore by rememberUpdatedState(onLoadMoreAutoplay)
+    val latestAutoplayEnabled by rememberUpdatedState(isAutoplayEnabled)
+
+    LaunchedEffect(listState, queue.size, isAutoplayEnabled) {
+        if (!isAutoplayEnabled) return@LaunchedEffect
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            totalItems > 0 && lastVisible >= (totalItems - 4).coerceAtLeast(0)
+        }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect {
+                if (latestAutoplayEnabled) {
+                    latestOnLoadMore()
+                }
+            }
+    }
 
     val upcoming = remember(queue, currentIndex) {
         queue.mapIndexedNotNull { index, song -> if (index > currentIndex) index to song else null }
@@ -233,6 +260,7 @@ fun QueueBottomSheet(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -503,6 +531,55 @@ fun QueueBottomSheet(
                                     draggingScope = null
                                     dragOffset = 0f
                                 }
+                            )
+                        }
+                    }
+                }
+
+                if (isAutoplayEnabled) {
+                    item(key = "endless_autoplay_footer") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 14.dp, bottom = 10.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Glassmorphism.accentGlassBrush(SpotifyGreen, 0.10f))
+                                .border(
+                                    0.8.dp,
+                                    Glassmorphism.accentGlassBorderBrush(SpotifyGreen),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = SpotifyGreenBright,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Endless autoplay active",
+                                    color = SpotifyTextSecondary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Text(
+                                text = "Load more similar songs",
+                                color = SpotifyGreenBright,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(onClick = onLoadMoreAutoplay)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }

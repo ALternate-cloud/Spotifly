@@ -1,6 +1,7 @@
 package com.example.spotifly.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,10 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -41,6 +45,10 @@ fun AboutScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     versionName: String = BuildConfig.VERSION_NAME,
+    currentVersionName: String = versionName,
+    updateStatusText: String? = null,
+    isCheckingUpdate: Boolean = false,
+    onCheckForUpdates: () -> Unit = {}
 ) {
     Column(
         modifier = modifier
@@ -79,11 +87,62 @@ fun AboutScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Version $versionName • Android music player",
+                    text = "Version $currentVersionName • Android music player",
                     color = SpotifyTextSecondary,
                     fontSize = 13.sp
                 )
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SpotifyCard)
+                        .clickable(enabled = !isCheckingUpdate, onClick = onCheckForUpdates)
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SystemUpdate,
+                        contentDescription = null,
+                        tint = SpotifyGreen,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Check for updates",
+                            color = SpotifyWhite,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = when {
+                                isCheckingUpdate -> "Checking GitHub Releases…"
+                                !updateStatusText.isNullOrBlank() -> updateStatusText
+                                else -> "Current version v$currentVersionName"
+                            },
+                            color = SpotifyTextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                    if (isCheckingUpdate) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = SpotifyGreen,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Check",
+                            color = SpotifyGreen,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
             item {

@@ -81,8 +81,8 @@ class MusicController private constructor(private val context: Context) {
     private var queuePlayToken = 0
     @Volatile
     private var resolvingTransitionSongId: String? = null
-    private var lastAutoplayAttemptSongId: String? = null
-    private var lastAutoplayAttemptAt = 0L
+    @Volatile
+    private var lastAutoplayFailureAtMs = 0L
     private var isFadingOut = false
 
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -294,22 +294,18 @@ class MusicController private constructor(private val context: Context) {
                 trackStartTimeMs = System.currentTimeMillis()
                 val mediaId = mediaItem?.mediaId
                 val currentQueue = _playbackState.value.queue
+                val previousIndex = _playbackState.value.currentIndex
                 val newIndex = resolveQueueIndex(currentQueue, mediaId, player.currentMediaItemIndex)
                 val newSong = if (newIndex != -1) currentQueue[newIndex] else null
 
-                // Consume item from manualQueue or autoplayQueue if applicable
-                val currentManual = _playbackState.value.manualQueue
-                val currentAuto = _playbackState.value.autoplayQueue
-                val updatedManual = if (currentManual.isNotEmpty() && newSong?.id == currentManual.first().id) {
-                    currentManual.drop(1)
-                } else {
-                    currentManual
-                }
-                val updatedAuto = if (currentAuto.isNotEmpty() && newSong?.id == currentAuto.first().id) {
-                    currentAuto.drop(1)
-                } else {
-                    currentAuto
-                }
+                // Consume passed items from manualQueue and autoplayQueue even if the player jumped ahead
+                val (updatedManual, updatedAuto) = syncSubQueuesOnTransition(
+                    previousIndex = previousIndex,
+                    newIndex = newIndex,
+                    newSong = newSong,
+                    manualQueue = _playbackState.value.manualQueue,
+                    autoplayQueue = _playbackState.value.autoplayQueue
+                )
 
                 _playbackState.update {
                     it.copy(
@@ -785,11 +781,13 @@ class MusicController private constructor(private val context: Context) {
 
         if (!newAutoplay) {
             cancelAutoplayFetch()
-            val autoCount = _playbackState.value.autoplayQueue.size
-            if (autoCount > 0) {
-                val totalCount = _playbackState.value.queue.size
+            val state = _playbackState.value
+            val maxRemovable = (state.queue.size - (state.currentIndex + 1).coerceAtLeast(0)).coerceAtLeast(0)
+            val removeCount = state.autoplayQueue.size.coerceAtMost(maxRemovable)
+            if (removeCount > 0) {
+                val totalCount = state.queue.size
                 withController { controller ->
-                    for (i in (totalCount - 1) downTo (totalCount - autoCount)) {
+                    for (i in (totalCount - 1) downTo (totalCount - removeCount)) {
                         if (i >= 0 && i < controller.mediaItemCount) {
                             controller.removeMediaItem(i)
                         }
@@ -799,16 +797,17 @@ class MusicController private constructor(private val context: Context) {
                     it.copy(
                         isAutoplay = false,
                         autoplayQueue = emptyList(),
-                        queue = it.queue.dropLast(autoCount)
+                        queue = it.queue.dropLast(removeCount)
                     )
                 }
             } else {
-                _playbackState.update { it.copy(isAutoplay = false) }
+                _playbackState.update { it.copy(isAutoplay = false, autoplayQueue = emptyList()) }
             }
         } else {
+            lastAutoplayFailureAtMs = 0L
             _playbackState.update { it.copy(isAutoplay = true) }
             val current = _playbackState.value.currentSong
-            if (current != null) {
+            if (current != null && !current.isPodcast) {
                 checkAndRefillAutoplayQueue(current)
             }
         }
@@ -896,6 +895,15 @@ class MusicController private constructor(private val context: Context) {
     // it is gapless. It is tagged in PlaybackState.autoplayNextId; any manual
     // queue edit drops it so user picks always play before autoplay picks.
 
+    /** Triggers an on-demand autoplay refill (e.g. when scrolling near the end of the queue sheet). */
+    fun loadMoreAutoplay() {
+        val state = _playbackState.value
+        if (!state.isAutoplay || state.isShuffle) return
+        val current = state.currentSong ?: return
+        if (current.isPodcast) return
+        checkAndRefillAutoplayQueue(current, forceRefill = true)
+    }
+
     /**
      * Safety net for long tracks: if remaining duration is low, stage continuation before song ends.
      */
@@ -907,7 +915,7 @@ class MusicController private constructor(private val context: Context) {
         if (durationMs <= 0L) return
         val remaining = durationMs - positionMs
         if (remaining < 0 || remaining > AUTOPLAY_PREFETCH_WINDOW_MS) return
-        if (state.autoplayQueue.size < 3) {
+        if (shouldRefillAutoplay(state)) {
             checkAndRefillAutoplayQueue(current)
         }
     }
@@ -916,100 +924,111 @@ class MusicController private constructor(private val context: Context) {
         cancelAutoplayFetch()
         val token = autoplayToken
         autoplayJob = scope.launch(Dispatchers.IO) {
-            val similar = runCatching {
-                if (prefs.offlineMode.value) listOfNotNull(pickAutoplayCandidate(seed)?.song)
-                else AutoplayManager.buildAutoplayQueue(
-                    seed = seed,
-                    recentPlayed = prefs.recentlyPlayed.value,
-                    excludeIds = setOf(seed.id, seed.internalId),
-                    userLikedIds = _favorites.value,
-                    userSkippedFastIds = fastSkippedIds.toSet(),
-                    measured = { vibeStore.get(it) },
-                    prepareCandidates = { measureCandidates(it) }
-                )
-            }.getOrDefault(emptyList())
+            val state = _playbackState.value
+            val exclude = buildAutoplayExcludeIds(state) +
+                setOfNotNull(seed.id, seed.internalId.takeIf(String::isNotBlank))
+            val similar = fetchAutoplayBatchForSeed(seed, exclude)
 
-            if (token != autoplayToken) return@launch
-            if (similar.isEmpty()) return@launch
+            if (!isActive || token != autoplayToken) return@launch
+            if (similar.isEmpty()) {
+                lastAutoplayFailureAtMs = System.currentTimeMillis()
+                return@launch
+            }
 
-            val latest = _playbackState.value
-            if (latest.currentSong?.id != seed.id || !latest.isAutoplay) return@launch
-
-            withContext(Dispatchers.Main) {
-                if (token != autoplayToken || !_playbackState.value.isAutoplay ||
-                    _playbackState.value.currentSong?.id != seed.id) return@withContext
-                val currentManual = _playbackState.value.manualQueue
-                val fresh = similar.filter { candidate -> currentManual.none { it.id == candidate.id || it.internalId == candidate.internalId } }
-                val updatedQueue = _playbackState.value.queue + fresh
-                _playbackState.update {
-                    it.copy(
-                        autoplayQueue = fresh,
-                        queue = updatedQueue
-                    )
-                }
-
-                withController { controller ->
-                    val nextIndex = controller.mediaItemCount
-                    for (s in fresh) {
-                        controller.addMediaItem(s.toMediaItem())
-                    }
-                    if (fresh.isNotEmpty() && controller.playbackState == Player.STATE_ENDED) {
-                        controller.seekTo(nextIndex, 0L)
-                        controller.prepare()
-                        controller.play()
-                    }
-                }
-
-                preResolveUpcoming()
+            if (commitAutoplayBatch(token, similar)) {
+                lastAutoplayFailureAtMs = 0L
+            } else {
+                lastAutoplayFailureAtMs = System.currentTimeMillis()
             }
         }
     }
 
-    private fun checkAndRefillAutoplayQueue(seed: Song, forcePlay: Boolean = false) {
+    private fun checkAndRefillAutoplayQueue(
+        seed: Song,
+        forcePlay: Boolean = false,
+        forceRefill: Boolean = false
+    ) {
         val state = _playbackState.value
-        if (!state.isAutoplay) return
-        if (state.autoplayQueue.size >= 3 && !forcePlay) return
+        if (!shouldRefillAutoplay(state, AUTOPLAY_LOOKAHEAD_THRESHOLD, forcePlay || forceRefill)) return
         if (refillJob?.isActive == true || autoplayJob?.isActive == true) return
+        val nowMs = System.currentTimeMillis()
+        if (isAutoplayRetryInCooldown(lastAutoplayFailureAtMs, nowMs, AUTOPLAY_RETRY_MS)) return
         val token = autoplayToken
 
         refillJob = scope.launch(Dispatchers.IO) {
-            val effectiveSeed = seed
-            val exclude = state.queue.map { it.id }.toSet() + state.queue.map { it.internalId }.toSet()
-            val more = runCatching {
-                if (prefs.offlineMode.value) listOfNotNull(pickAutoplayCandidate(effectiveSeed)?.song)
-                else AutoplayManager.buildAutoplayQueue(
-                    seed = effectiveSeed,
+            val seedCandidates = selectAutoplaySeedCandidates(
+                state = state,
+                fallbackSeed = seed,
+                recentPlayed = prefs.recentlyPlayed.value
+            )
+            val exclude = buildAutoplayExcludeIds(state)
+            var appendedAny = false
+
+            for (candidateSeed in seedCandidates) {
+                if (!isActive || token != autoplayToken) return@launch
+                val batch = fetchAutoplayBatchForSeed(candidateSeed, exclude)
+                if (batch.isEmpty()) continue
+                if (!isActive || token != autoplayToken) return@launch
+                if (commitAutoplayBatch(token, batch)) {
+                    appendedAny = true
+                    break
+                }
+            }
+
+            if (appendedAny) {
+                lastAutoplayFailureAtMs = 0L
+            } else if (token == autoplayToken) {
+                lastAutoplayFailureAtMs = System.currentTimeMillis()
+            }
+        }
+    }
+
+    private suspend fun fetchAutoplayBatchForSeed(seed: Song, excludeIds: Set<String>): List<Song> {
+        return runCatching {
+            if (prefs.offlineMode.value) {
+                listOfNotNull(pickAutoplayCandidate(seed)?.song)
+            } else {
+                AutoplayManager.buildAutoplayQueue(
+                    seed = seed,
                     recentPlayed = prefs.recentlyPlayed.value,
-                    excludeIds = exclude,
+                    excludeIds = excludeIds,
                     userLikedIds = _favorites.value,
                     userSkippedFastIds = fastSkippedIds.toSet(),
+                    targetSize = AUTOPLAY_BATCH_SIZE,
                     measured = { vibeStore.get(it) },
                     prepareCandidates = { measureCandidates(it) }
                 )
-            }.getOrDefault(emptyList())
+            }
+        }.getOrDefault(emptyList())
+    }
 
-            if (more.isNotEmpty()) {
-                withContext(Dispatchers.Main) {
-                    val curr = _playbackState.value
-                    if (token != autoplayToken || !curr.isAutoplay || curr.currentSong?.id != seed.id) return@withContext
-                    val fresh = more.filter { candidate -> curr.queue.none { it.id == candidate.id || it.internalId == candidate.internalId } }
-                    if (fresh.isEmpty()) return@withContext
-                    val newAuto = curr.autoplayQueue + fresh
-                    val newQueue = curr.queue + fresh
-                    _playbackState.update { it.copy(autoplayQueue = newAuto, queue = newQueue) }
-                    withController { ctrl ->
-                        for (s in fresh) {
-                            ctrl.addMediaItem(s.toMediaItem())
-                        }
-                        if (ctrl.playbackState == Player.STATE_ENDED) {
-                            ctrl.seekTo(curr.queue.size, 0L)
-                            ctrl.prepare()
-                            ctrl.play()
-                        }
-                    }
-                    preResolveUpcoming()
+    private suspend fun commitAutoplayBatch(token: Int, candidates: List<Song>): Boolean {
+        return withContext(Dispatchers.Main) {
+            val curr = _playbackState.value
+            if (token != autoplayToken || !curr.isAutoplay || curr.isShuffle ||
+                curr.currentSong == null || curr.currentSong.isPodcast
+            ) {
+                return@withContext false
+            }
+            val mergeResult = mergeAutoplayBatch(curr, candidates)
+            if (mergeResult.appended.isEmpty()) return@withContext false
+
+            val previousQueueSize = curr.queue.size
+            _playbackState.update { mergeResult.updatedState }
+            withController { ctrl ->
+                val insertStart = ctrl.mediaItemCount
+                for (s in mergeResult.appended) {
+                    ctrl.addMediaItem(s.toMediaItem())
+                }
+                if (ctrl.playbackState == Player.STATE_ENDED) {
+                    val targetIndex = previousQueueSize.coerceAtMost(insertStart)
+                    ctrl.seekTo(targetIndex, 0L)
+                    ctrl.prepare()
+                    ctrl.play()
                 }
             }
+            preResolveUpcoming()
+            true
         }
     }
 
@@ -1109,8 +1128,7 @@ class MusicController private constructor(private val context: Context) {
     private fun preResolveUpcoming() {
         preResolveJob?.cancel()
         preResolveJob = scope.launch(Dispatchers.IO) {
-            val state = _playbackState.value
-            val upcoming = state.queue.drop((state.currentIndex + 1).coerceAtLeast(0)).take(3)
+            val upcoming = songsToPreResolve(_playbackState.value, AUTOPLAY_PRERESOLVE_COUNT)
             for (song in upcoming) {
                 if (!song.isLocal && !song.isPodcast && !song.hasPlayableSource()) {
                     val resolved = resolveForPlayback(song)
@@ -1158,7 +1176,7 @@ class MusicController private constructor(private val context: Context) {
         autoplayJob = null
         refillJob?.cancel()
         refillJob = null
-        lastAutoplayAttemptSongId = null
+        lastAutoplayFailureAtMs = 0L
     }
 
     private fun dropAutoplayTail() {
@@ -1523,4 +1541,198 @@ internal fun computeSleepFadeVolume(
     if (fadeWindowMs <= 0L || remainingMs >= fadeWindowMs) return 1f
     val linear = remainingMs.toFloat() / fadeWindowMs.toFloat()
     return (linear * linear).coerceIn(0f, 1f)
+}
+
+internal const val AUTOPLAY_LOOKAHEAD_THRESHOLD = 8
+internal const val AUTOPLAY_BATCH_SIZE = AutoplayManager.DEFAULT_BATCH_SIZE
+internal const val AUTOPLAY_PRERESOLVE_COUNT = 4
+internal const val AUTOPLAY_RETRY_COOLDOWN_MS = 15_000L
+
+internal data class AutoplayMergeResult(
+    val appended: List<Song>,
+    val updatedState: PlaybackState
+)
+
+/** Returns the slice of [queue] strictly after [currentIndex]. */
+internal fun remainingUpcomingTracks(queue: List<Song>, currentIndex: Int): List<Song> {
+    if (queue.isEmpty()) return emptyList()
+    val start = (currentIndex + 1).coerceAtLeast(0)
+    if (start >= queue.size) return emptyList()
+    return queue.subList(start, queue.size)
+}
+
+/**
+ * Counts actual non-manual tracks remaining after [PlaybackState.currentIndex]
+ * instead of trusting a potentially stale [PlaybackState.autoplayQueue] size.
+ */
+internal fun remainingUpcomingNonManualCount(state: PlaybackState): Int {
+    val upcoming = remainingUpcomingTracks(state.queue, state.currentIndex)
+    if (upcoming.isEmpty()) return 0
+    var manualPrefix = 0
+    val manual = state.manualQueue
+    while (manualPrefix < manual.size &&
+        manualPrefix < upcoming.size &&
+        upcoming[manualPrefix].id == manual[manualPrefix].id
+    ) {
+        manualPrefix++
+    }
+    return (upcoming.size - manualPrefix).coerceAtLeast(0)
+}
+
+/** True when autoplay should proactively stage another batch of tracks. */
+internal fun shouldRefillAutoplay(
+    state: PlaybackState,
+    lookaheadThreshold: Int = AUTOPLAY_LOOKAHEAD_THRESHOLD,
+    forcePlay: Boolean = false
+): Boolean {
+    if (!state.isAutoplay || state.isShuffle) return false
+    if (forcePlay) return true
+    return remainingUpcomingNonManualCount(state) < lookaheadThreshold
+}
+
+/**
+ * Selects ordered non-podcast seed candidates for chained tail seeding:
+ * tail of autoplayQueue -> tail of upcoming/queue -> currentSong -> fallbackSeed -> recent non-podcast history.
+ */
+internal fun selectAutoplaySeedCandidates(
+    state: PlaybackState,
+    fallbackSeed: Song? = null,
+    recentPlayed: List<Song> = emptyList(),
+    maxFallbacks: Int = 3
+): List<Song> {
+    val upcoming = remainingUpcomingTracks(state.queue, state.currentIndex)
+    val tailSeed = state.autoplayQueue.lastOrNull { !it.isPodcast }
+        ?: upcoming.lastOrNull { !it.isPodcast }
+        ?: state.queue.lastOrNull { !it.isPodcast }
+        ?: fallbackSeed?.takeUnless { it.isPodcast }
+
+    val ordered = buildList {
+        tailSeed?.let(::add)
+        state.currentSong?.let(::add)
+        fallbackSeed?.let(::add)
+        var addedRecent = 0
+        for (song in recentPlayed) {
+            if (!song.isPodcast) {
+                add(song)
+                addedRecent++
+                if (addedRecent >= maxFallbacks) break
+            }
+        }
+    }
+
+    val seenIds = HashSet<String>(ordered.size)
+    return ordered.filter { song ->
+        !song.isPodcast && song.id.isNotBlank() && seenIds.add(song.id)
+    }
+}
+
+/** Collects all song ids and non-blank internalIds currently present in the queue/state. */
+internal fun buildAutoplayExcludeIds(state: PlaybackState): Set<String> {
+    val ids = HashSet<String>()
+    fun collect(songs: List<Song>) {
+        for (song in songs) {
+            if (song.id.isNotBlank()) ids.add(song.id)
+            if (song.internalId.isNotBlank()) ids.add(song.internalId)
+        }
+    }
+    collect(state.queue)
+    collect(state.manualQueue)
+    collect(state.autoplayQueue)
+    state.currentSong?.let {
+        if (it.id.isNotBlank()) ids.add(it.id)
+        if (it.internalId.isNotBlank()) ids.add(it.internalId)
+    }
+    return ids
+}
+
+/** Merges [incoming] autoplay songs into [state], deduplicating by id, internalId, recording, and title family. */
+internal fun mergeAutoplayBatch(
+    state: PlaybackState,
+    incoming: List<Song>
+): AutoplayMergeResult {
+    if (incoming.isEmpty()) return AutoplayMergeResult(emptyList(), state)
+    val existing = state.queue + state.manualQueue + state.autoplayQueue
+    val seenIds = HashSet<String>(existing.size * 2)
+    val seenDedupeKeys = HashSet<String>(existing.size)
+    val seenTitleKeys = HashSet<String>(existing.size)
+    for (song in existing) {
+        if (song.id.isNotBlank()) seenIds.add(song.id)
+        if (song.internalId.isNotBlank()) seenIds.add(song.internalId)
+        seenDedupeKeys.add(VibeFeatures.dedupeKey(song))
+        if (song.title.isNotBlank()) seenTitleKeys.add(VibeFeatures.titleKey(song))
+    }
+
+    val fresh = mutableListOf<Song>()
+    for (candidate in incoming) {
+        if (candidate.isPodcast || candidate.id.isBlank()) continue
+        if (candidate.id in seenIds) continue
+        if (candidate.internalId.isNotBlank() && candidate.internalId in seenIds) continue
+        val dedupeKey = VibeFeatures.dedupeKey(candidate)
+        if (dedupeKey in seenDedupeKeys) continue
+        val titleKey = if (candidate.title.isNotBlank()) VibeFeatures.titleKey(candidate) else ""
+        if (titleKey.isNotEmpty() && titleKey in seenTitleKeys) continue
+
+        seenIds.add(candidate.id)
+        if (candidate.internalId.isNotBlank()) seenIds.add(candidate.internalId)
+        seenDedupeKeys.add(dedupeKey)
+        if (titleKey.isNotEmpty()) seenTitleKeys.add(titleKey)
+        fresh.add(candidate)
+    }
+
+    if (fresh.isEmpty()) return AutoplayMergeResult(emptyList(), state)
+    return AutoplayMergeResult(
+        appended = fresh,
+        updatedState = state.copy(
+            autoplayQueue = state.autoplayQueue + fresh,
+            queue = state.queue + fresh
+        )
+    )
+}
+
+/** Keeps [manualQueue] and [autoplayQueue] in sync when the player advances (including multi-track skips). */
+internal fun syncSubQueuesOnTransition(
+    previousIndex: Int,
+    newIndex: Int,
+    newSong: Song?,
+    manualQueue: List<Song>,
+    autoplayQueue: List<Song>
+): Pair<List<Song>, List<Song>> {
+    if (newIndex > previousIndex && previousIndex >= 0) {
+        val advanced = newIndex - previousIndex
+        val remainingManual = manualQueue.drop(advanced.coerceAtMost(manualQueue.size))
+        val consumedAuto = (advanced - manualQueue.size).coerceIn(0, autoplayQueue.size)
+        val remainingAuto = autoplayQueue.drop(consumedAuto)
+        return remainingManual to remainingAuto
+    }
+    val updatedManual = if (manualQueue.isNotEmpty() && newSong?.id == manualQueue.first().id) {
+        manualQueue.drop(1)
+    } else {
+        manualQueue
+    }
+    val updatedAuto = if (autoplayQueue.isNotEmpty() && newSong?.id == autoplayQueue.first().id) {
+        autoplayQueue.drop(1)
+    } else {
+        autoplayQueue
+    }
+    return updatedManual to updatedAuto
+}
+
+/** Caps upcoming pre-resolution so large 15+ queues don't burst network requests. */
+internal fun songsToPreResolve(
+    state: PlaybackState,
+    limit: Int = AUTOPLAY_PRERESOLVE_COUNT
+): List<Song> {
+    if (limit <= 0) return emptyList()
+    return remainingUpcomingTracks(state.queue, state.currentIndex).take(limit)
+}
+
+/** Returns true if a recent autoplay failure is still within its retry cooldown window. */
+internal fun isAutoplayRetryInCooldown(
+    lastFailedAtMs: Long,
+    nowMs: Long,
+    cooldownMs: Long = AUTOPLAY_RETRY_COOLDOWN_MS
+): Boolean {
+    if (lastFailedAtMs <= 0L || cooldownMs <= 0L) return false
+    val elapsed = nowMs - lastFailedAtMs
+    return elapsed in 0L until cooldownMs
 }
